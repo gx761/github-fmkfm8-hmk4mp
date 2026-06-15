@@ -1,19 +1,37 @@
-# Module Federation
+# whistle-rs
 
-## How to use
+> 用 Rust 重构 [whistle](https://github.com/avwo/whistle)（`w2`）—— 一个跨平台的 HTTP / HTTPS / HTTP2 / WebSocket / TCP 抓包调试代理工具。
 
-Run the following commands in the root directory.
+**当前阶段：📐 规划设计（Planning）—— 本仓库目前只包含设计文档，尚未开始编码。**
 
-```bash
-yarn
-yarn start
-```
+whistle 是基于 Node.js 的网络调试代理，核心能力包括：基于规则（Rule DSL）的请求/响应改写、HTTPS 中间人解密、Web UI 抓包面板、插件体系、Composer（请求重放）、Weinre 等。本项目的目标是用 Rust 重写其代理内核，获得更低的内存占用、更高的吞吐与更强的稳定性，同时尽量保持 whistle 规则语法的兼容性。
 
-Both `app1` and `app2` are independently deployed apps:
+## 为什么用 Rust 重写
 
-- `app1`: http://localhost:3001
-- `app2`: http://localhost:3002
+| 维度 | Node.js 版 whistle | Rust 重写目标 |
+| --- | --- | --- |
+| 内存占用 | 单进程常驻数十~上百 MB | 显著降低（无 V8/GC 常驻） |
+| 并发模型 | 单线程事件循环 | tokio 多线程异步 + work-stealing |
+| 大流量/高并发抓包 | GC 抖动、易 OOM | 零拷贝转发、可预测延迟 |
+| 分发 | 依赖 Node 运行时 | 单二进制，跨平台静态分发 |
+| TLS 性能 | OpenSSL via Node | rustls（纯 Rust，内存安全） |
 
-Check out this link below for more examples:
+## 设计文档
 
-[https://github.com/module-federation/module-federation-examples](https://github.com/module-federation/module-federation-examples)
+| 文档 | 内容 |
+| --- | --- |
+| [docs/01-background-and-goals.md](docs/01-background-and-goals.md) | 背景、目标、非目标、兼容性策略 |
+| [docs/02-architecture.md](docs/02-architecture.md) | 目标整体架构与数据流 |
+| [docs/03-module-mapping.md](docs/03-module-mapping.md) | whistle 各模块 → Rust crate/模块 对应方案 |
+| [docs/04-rules-engine.md](docs/04-rules-engine.md) | 规则引擎设计与协议覆盖清单 |
+| [docs/05-tech-stack.md](docs/05-tech-stack.md) | Rust 技术/crate 选型 |
+| [docs/06-roadmap.md](docs/06-roadmap.md) | 分阶段里程碑路线图 |
+
+## 工作名 / 命名
+
+- 项目代号：`whistle-rs`
+- 计划二进制名：`w2r`（与现有 `w2` 区分，便于并存对比）
+
+## 许可证
+
+计划沿用 whistle 的 MIT 许可证（待最终确认）。

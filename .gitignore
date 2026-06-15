@@ -1,1 +1,17 @@
-node_modules
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+*.rs.bk
+
+# Whistle-rs data / certs (生成的本地数据，不入库)
+/.whistle-rs/
+*.pem
+*.crt
+*.key
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
