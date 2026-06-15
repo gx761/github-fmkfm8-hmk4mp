@@ -2,11 +2,11 @@
 
 按「先打通端到端最小链路，再横向铺协议、纵向补能力」推进。每个里程碑都应可运行、可演示、有测试。
 
-## M0 · 工程脚手架（Foundation）
-- 初始化 Cargo workspace 与各 crate 空壳（见 [02-architecture.md](02-architecture.md#25-crate-拆分workspace)）。
-- 接入 `clap` CLI 骨架：`w2r start/stop/status/ca`。
-- 接入 `tracing` 日志、CI（fmt + clippy + test）。
-- **产出**：`w2r --help` 可运行；CI 绿。
+## M0 · 工程脚手架（Foundation）— ✅ 已完成
+- [x] 初始化 Cargo workspace 与 9 个 crate（见 [02-architecture.md](02-architecture.md#25-crate-拆分workspace)）。
+- [x] 接入 `clap` CLI 骨架：`w2r start/stop/status/ca`。
+- [x] 接入 `tracing` 日志、`rustfmt`、CI（fmt + clippy + 多平台 build + test）。
+- **产出**：`w2r --help` 可运行；`cargo fmt/clippy/test` 全绿。
 
 ## M1 · HTTP 透传代理（Plain HTTP MVP）
 - 监听代理端口，作为系统代理转发明文 HTTP 请求并返回响应。

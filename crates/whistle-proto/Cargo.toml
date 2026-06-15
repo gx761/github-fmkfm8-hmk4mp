@@ -1,0 +1,8 @@
+[package]
+name = "whistle-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HTTP/1.1 · HTTP/2 · WebSocket · SOCKS 协议处理"
+
+[dependencies]

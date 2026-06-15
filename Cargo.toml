@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/gx761/github-fmkfm8-hmk4mp"
+description = "whistle-rs — 用 Rust 重写的 HTTP/HTTPS/WS 调试代理"
+
+[workspace.dependencies]
+# 异步运行时与网络（后续里程碑逐步启用）
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "signal"] }
+bytes = "1"
+
+# CLI / 日志 / 错误
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "1"
+
+# 序列化 / 配置
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# 内部 crate（路径依赖）
+whistle-core = { path = "crates/whistle-core" }
+whistle-rules = { path = "crates/whistle-rules" }
+whistle-tls = { path = "crates/whistle-tls" }
+whistle-proto = { path = "crates/whistle-proto" }
+whistle-capture = { path = "crates/whistle-capture" }
+whistle-inspectors = { path = "crates/whistle-inspectors" }
+whistle-plugin = { path = "crates/whistle-plugin" }
+whistle-web = { path = "crates/whistle-web" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

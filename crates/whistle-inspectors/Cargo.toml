@@ -1,0 +1,8 @@
+[package]
+name = "whistle-inspectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "各规则协议的请求/响应改写实现"
+
+[dependencies]

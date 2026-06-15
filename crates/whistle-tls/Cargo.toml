@@ -1,0 +1,8 @@
+[package]
+name = "whistle-tls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CA 生成与动态证书签发、rustls 集成（HTTPS MITM）"
+
+[dependencies]

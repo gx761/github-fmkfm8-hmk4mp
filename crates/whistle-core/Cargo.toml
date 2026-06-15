@@ -1,0 +1,11 @@
+[package]
+name = "whistle-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "whistle-rs 代理内核：监听、连接、转发、隧道、MITM 调度"
+
+[dependencies]
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true

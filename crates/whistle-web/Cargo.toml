@@ -1,0 +1,8 @@
+[package]
+name = "whistle-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "axum 管理面 API + UI 托管 + WebSocket 推送"
+
+[dependencies]
