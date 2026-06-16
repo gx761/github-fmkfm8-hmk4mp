@@ -108,6 +108,17 @@ function bodyBlock(title, body, size, truncated){
   const note = truncated ? ` <span class="proto">（已截断，共 ${size} 字节）</span>` : (size?` <span class="proto">（${size} 字节）</span>`:'');
   return `<h3>${title}${note}</h3><pre>${esc(body)}</pre>`;
 }
+const WS_OP = {1:'text',2:'binary',8:'close',9:'ping',10:'pong'};
+function wsBlock(msgs){
+  if(!msgs || !msgs.length) return '';
+  const rows = msgs.map(m=>{
+    const arrow = m.dir==='send' ? '▲ 发送' : '▼ 接收';
+    const kind = WS_OP[m.opcode] || ('op'+m.opcode);
+    const text = m.text!=null ? esc(m.text) : `(${kind}, ${m.size} 字节)`;
+    return `<div><span class="proto">${arrow} · ${kind}</span> ${text}</div>`;
+  }).join('');
+  return `<h3>WebSocket 消息（${msgs.length}）</h3><pre>${rows}</pre>`;
+}
 function refreshDetail(t){
   $('#detail').innerHTML =
     `<h3>${esc(t.method)} ${esc(t.url)}</h3>`+
@@ -117,7 +128,8 @@ function refreshDetail(t){
     `<h3>请求头</h3>${headersTable(t.req_headers)}`+
     bodyBlock('请求体', t.req_body, t.req_body_size, false)+
     `<h3>响应头</h3>${headersTable(t.res_headers)}`+
-    bodyBlock('响应体', t.res_body, t.res_body_size, t.res_body_truncated);
+    bodyBlock('响应体', t.res_body, t.res_body_size, t.res_body_truncated)+
+    wsBlock(t.ws_messages);
 }
 function showDetail(id){
   selected = id;

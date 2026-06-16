@@ -15,3 +15,6 @@ Cargo.lock.bak
 .vscode/
 .DS_Store
 *.swp
+
+# Claude Code agent worktrees
+.claude/worktrees/

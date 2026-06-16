@@ -9,6 +9,7 @@
 pub mod apply;
 pub mod config;
 pub mod proxy;
+mod ws;
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};

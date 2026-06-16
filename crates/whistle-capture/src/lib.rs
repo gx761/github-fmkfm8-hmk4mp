@@ -19,6 +19,19 @@ pub struct Header {
     pub value: String,
 }
 
+/// 一条 WebSocket 消息记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsMessage {
+    /// 方向：`send`（客户端→服务端）/ `recv`（服务端→客户端）。
+    pub dir: String,
+    /// WebSocket 操作码（0x1 文本，0x2 二进制，0x8 关闭，0x9 ping，0xA pong）。
+    pub opcode: u8,
+    /// 文本预览（文本帧时；可能截断）。
+    pub text: Option<String>,
+    /// 该消息原始负载字节数。
+    pub size: u64,
+}
+
 /// 单条流量记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Traffic {
@@ -52,6 +65,8 @@ pub struct Traffic {
     pub res_body_size: u64,
     /// 响应体预览是否被截断。
     pub res_body_truncated: bool,
+    /// WebSocket 消息记录（仅 ws/wss 流量）。
+    pub ws_messages: Vec<WsMessage>,
     /// 错误信息（如有）。
     pub error: Option<String>,
 }
@@ -77,7 +92,15 @@ impl Traffic {
             req_body_size: 0,
             res_body_size: 0,
             res_body_truncated: false,
+            ws_messages: Vec::new(),
             error: None,
+        }
+    }
+
+    /// 追加一条 WebSocket 消息（超过 `max` 条后丢弃，避免无界增长）。
+    pub fn push_ws(&mut self, msg: WsMessage, max: usize) {
+        if self.ws_messages.len() < max {
+            self.ws_messages.push(msg);
         }
     }
 

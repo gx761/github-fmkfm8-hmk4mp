@@ -403,17 +403,33 @@ async fn handle_ws(
     traffic.res_headers = collect_headers(upresp.headers());
     store.upsert(traffic.clone());
 
-    // 升级完成后双向中继。
+    // 升级完成后双向中继，并做帧级抓取。
     let store2 = store.clone();
     tokio::spawn(async move {
         match tokio::join!(client_upgrade, upstream_upgrade) {
             (Ok(client), Ok(upstream)) => {
-                let mut c = TokioIo::new(client);
-                let mut u = TokioIo::new(upstream);
-                match tokio::io::copy_bidirectional(&mut c, &mut u).await {
-                    Ok((up, down)) => debug!(up, down, "WS 中继结束"),
-                    Err(e) => debug!(%e, "WS 中继错误"),
-                }
+                let (cr, cw) = tokio::io::split(TokioIo::new(client));
+                let (ur, uw) = tokio::io::split(TokioIo::new(upstream));
+                let traffic = std::sync::Arc::new(std::sync::Mutex::new(traffic));
+                // send: 客户端→上游；recv: 上游→客户端。
+                let send = tokio::spawn(crate::ws::relay(
+                    cr,
+                    uw,
+                    "send",
+                    traffic.clone(),
+                    store2.clone(),
+                ));
+                let recv = tokio::spawn(crate::ws::relay(
+                    ur,
+                    cw,
+                    "recv",
+                    traffic.clone(),
+                    store2.clone(),
+                ));
+                let _ = tokio::join!(send, recv);
+                let mut t = traffic.lock().unwrap();
+                t.finish();
+                store2.upsert(t.clone());
             }
             (c, u) => {
                 traffic.error = Some(format!(
@@ -421,10 +437,10 @@ async fn handle_ws(
                     c.err(),
                     u.err()
                 ));
+                traffic.finish();
+                store2.upsert(traffic);
             }
         }
-        traffic.finish();
-        store2.upsert(traffic);
     });
 
     client_resp
