@@ -284,7 +284,7 @@ fn eval_rules(
 }
 
 /// 建立到上游的明文 HTTP/1 连接，返回可发送请求的 sender。
-async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<Incoming>, String> {
+async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<ResBody>, String> {
     let stream = TcpStream::connect((host, port))
         .await
         .map_err(|e| format!("连接上游失败: {e}"))?;
@@ -300,7 +300,7 @@ async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<Incoming>, S
 }
 
 /// 建立到上游的 TLS HTTP/1 连接（SNI = 原始 host）。
-async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<Incoming>, String> {
+async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<ResBody>, String> {
     let tcp = TcpStream::connect((host, port))
         .await
         .map_err(|e| format!("连接上游失败: {e}"))?;
@@ -322,9 +322,9 @@ async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<Inc
     Ok(sender)
 }
 
-/// 转发请求到上游、应用响应改写、记录抓包。
+/// 转发请求到上游、应用请求/响应改写（含 body）、记录抓包。
 async fn send_and_capture(
-    mut sender: SendRequest<Incoming>,
+    mut sender: SendRequest<ResBody>,
     req: Request<Incoming>,
     ops: &[Operation],
     mut traffic: Traffic,
@@ -340,17 +340,71 @@ async fn send_and_capture(
     parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
     remove_hop_headers(&mut parts.headers);
     apply::apply_request_headers(&mut parts.headers, ops);
-    let upstream_req = Request::from_parts(parts, body);
+    apply::override_method(ops, &mut parts);
 
+    // 请求阶段延迟。
+    if let Some(d) = apply::req_delay(ops) {
+        tokio::time::sleep(d).await;
+    }
+
+    // 请求体：需要改写则缓冲，否则流式透传。
+    let req_body: ResBody = if apply::has_req_body_rewrite(ops) {
+        match body.collect().await {
+            Ok(c) => {
+                let new = apply::rewrite_req_body(&c.to_bytes(), ops);
+                apply::set_content_length(&mut parts.headers, new.len());
+                apply::full_body(new)
+            }
+            Err(e) => {
+                return finish_error(
+                    store,
+                    &mut traffic,
+                    StatusCode::BAD_GATEWAY,
+                    &format!("读取请求体失败: {e}"),
+                )
+            }
+        }
+    } else {
+        body.map_err(Into::into).boxed()
+    };
+
+    let upstream_req = Request::from_parts(parts, req_body);
     match sender.send_request(upstream_req).await {
         Ok(resp) => {
             let (mut rparts, body) = resp.into_parts();
             apply::apply_response(&mut rparts, ops);
+            apply::override_status(ops, &mut rparts.status);
+
+            if let Some(d) = apply::res_delay(ops) {
+                tokio::time::sleep(d).await;
+            }
+
+            // 响应体：需要改写则缓冲，否则流式透传。
+            let res_body: ResBody = if apply::has_res_body_rewrite(ops) {
+                match body.collect().await {
+                    Ok(c) => {
+                        let new = apply::rewrite_res_body(&c.to_bytes(), ops);
+                        apply::set_content_length(&mut rparts.headers, new.len());
+                        apply::full_body(new)
+                    }
+                    Err(e) => {
+                        return finish_error(
+                            store,
+                            &mut traffic,
+                            StatusCode::BAD_GATEWAY,
+                            &format!("读取响应体失败: {e}"),
+                        )
+                    }
+                }
+            } else {
+                body.map_err(Into::into).boxed()
+            };
+
             traffic.status = Some(rparts.status.as_u16());
             traffic.res_headers = collect_headers(&rparts.headers);
             traffic.finish();
             store.upsert(traffic);
-            Response::from_parts(rparts, body.map_err(Into::into).boxed())
+            Response::from_parts(rparts, res_body)
         }
         Err(e) => finish_error(
             store,

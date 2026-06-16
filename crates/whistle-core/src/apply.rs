@@ -71,6 +71,11 @@ pub(crate) fn apply_request_headers(headers: &mut HeaderMap, ops: &[Operation]) 
     if let Some(r) = last_value(ops, "referer") {
         set_header(headers, "referer", r);
     }
+    // reqCookies：合并到 Cookie 头。
+    let cookies = all_values(ops, "reqCookies");
+    if !cookies.is_empty() {
+        merge_cookie_header(headers, &cookies);
+    }
 }
 
 /// 应用响应阶段操作（转发场景）。
@@ -80,6 +85,171 @@ pub(crate) fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Op
     }
     if let Some(t) = last_value(ops, "resType") {
         set_header(&mut parts.headers, CONTENT_TYPE.as_str(), &mime_of(t));
+    }
+    // resCookies：每对追加一个 Set-Cookie。
+    for v in all_values(ops, "resCookies") {
+        for pair in v.split('&').filter(|p| !p.is_empty()) {
+            if let Ok(val) = HeaderValue::from_str(pair) {
+                parts.headers.append(hyper::header::SET_COOKIE, val);
+            }
+        }
+    }
+    if let Some(name) = last_value(ops, "attachment") {
+        set_header(
+            &mut parts.headers,
+            "content-disposition",
+            &format!("attachment; filename=\"{name}\""),
+        );
+    }
+}
+
+/// 合并若干 `a=1&b=2` 到现有 Cookie 头。
+fn merge_cookie_header(headers: &mut HeaderMap, additions: &[&str]) {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(existing) = headers.get(hyper::header::COOKIE) {
+        if let Ok(s) = existing.to_str() {
+            parts.push(s.to_string());
+        }
+    }
+    for a in additions {
+        for pair in a.split('&').filter(|p| !p.is_empty()) {
+            parts.push(pair.trim().to_string());
+        }
+    }
+    if let Ok(v) = HeaderValue::from_str(&parts.join("; ")) {
+        headers.insert(hyper::header::COOKIE, v);
+    }
+}
+
+/// `reqDelay`/`resDelay`：取延迟（毫秒）。
+pub(crate) fn req_delay(ops: &[Operation]) -> Option<std::time::Duration> {
+    delay_of(ops, "reqDelay")
+}
+pub(crate) fn res_delay(ops: &[Operation]) -> Option<std::time::Duration> {
+    delay_of(ops, "resDelay")
+}
+fn delay_of(ops: &[Operation], proto: &str) -> Option<std::time::Duration> {
+    last_value(ops, proto)
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+}
+
+/// `method://`：覆盖请求方法。
+pub(crate) fn override_method(ops: &[Operation], parts: &mut hyper::http::request::Parts) {
+    if let Some(m) = last_value(ops, "method") {
+        if let Ok(method) = hyper::Method::from_bytes(m.to_ascii_uppercase().as_bytes()) {
+            parts.method = method;
+        }
+    }
+}
+
+/// `replaceStatus://` / `statusCode://`（转发场景）：覆盖响应状态码。
+pub(crate) fn override_status(ops: &[Operation], status: &mut StatusCode) {
+    let code = last_value(ops, "replaceStatus").or_else(|| last_value(ops, "statusCode"));
+    if let Some(c) = code
+        .and_then(|c| c.parse::<u16>().ok())
+        .and_then(|c| StatusCode::from_u16(c).ok())
+    {
+        *status = c;
+    }
+}
+
+/// 响应体改写协议集合。
+const RES_BODY_PROTOS: &[&str] = &[
+    "resBody",
+    "htmlBody",
+    "jsBody",
+    "cssBody",
+    "resReplace",
+    "resPrepend",
+    "resAppend",
+    "htmlPrepend",
+    "htmlAppend",
+    "jsPrepend",
+    "jsAppend",
+    "cssPrepend",
+    "cssAppend",
+];
+/// 请求体改写协议集合。
+const REQ_BODY_PROTOS: &[&str] = &["reqBody", "reqReplace", "reqPrepend", "reqAppend"];
+
+pub(crate) fn has_res_body_rewrite(ops: &[Operation]) -> bool {
+    ops.iter()
+        .any(|o| RES_BODY_PROTOS.contains(&o.protocol.as_str()))
+}
+pub(crate) fn has_req_body_rewrite(ops: &[Operation]) -> bool {
+    ops.iter()
+        .any(|o| REQ_BODY_PROTOS.contains(&o.protocol.as_str()))
+}
+
+/// 改写响应体（UTF-8 文本处理）。
+pub(crate) fn rewrite_res_body(bytes: &[u8], ops: &[Operation]) -> Vec<u8> {
+    rewrite_body(
+        bytes,
+        ops,
+        &["resBody", "htmlBody", "jsBody", "cssBody"],
+        &["resReplace"],
+        &["resPrepend", "htmlPrepend", "jsPrepend", "cssPrepend"],
+        &["resAppend", "htmlAppend", "jsAppend", "cssAppend"],
+    )
+}
+
+/// 改写请求体（UTF-8 文本处理）。
+pub(crate) fn rewrite_req_body(bytes: &[u8], ops: &[Operation]) -> Vec<u8> {
+    rewrite_body(
+        bytes,
+        ops,
+        &["reqBody"],
+        &["reqReplace"],
+        &["reqPrepend"],
+        &["reqAppend"],
+    )
+}
+
+fn rewrite_body(
+    bytes: &[u8],
+    ops: &[Operation],
+    whole: &[&str],
+    replace: &[&str],
+    prepend: &[&str],
+    append: &[&str],
+) -> Vec<u8> {
+    let mut s = String::from_utf8_lossy(bytes).into_owned();
+    // 整体替换（取最后一次出现）。
+    for p in whole {
+        if let Some(v) = last_value(ops, p) {
+            s = v.to_string();
+        }
+    }
+    // from=to 字符串替换。
+    for p in replace {
+        for v in all_values(ops, p) {
+            if let Some((from, to)) = v.split_once('=') {
+                s = s.replace(from, to);
+            }
+        }
+    }
+    // 前置 / 后置。
+    let mut pre = String::new();
+    for p in prepend {
+        for v in all_values(ops, p) {
+            pre.push_str(v);
+        }
+    }
+    let mut post = String::new();
+    for p in append {
+        for v in all_values(ops, p) {
+            post.push_str(v);
+        }
+    }
+    format!("{pre}{s}{post}").into_bytes()
+}
+
+/// 改写 body 后修正 Content-Length 并去掉分块编码。
+pub(crate) fn set_content_length(headers: &mut HeaderMap, len: usize) {
+    headers.remove(hyper::header::TRANSFER_ENCODING);
+    if let Ok(v) = HeaderValue::from_str(&len.to_string()) {
+        headers.insert(CONTENT_LENGTH, v);
     }
 }
 
@@ -215,7 +385,7 @@ pub(crate) fn text_body(s: &str) -> ResBody {
         .boxed()
 }
 
-fn full_body(bytes: Vec<u8>) -> ResBody {
+pub(crate) fn full_body(bytes: Vec<u8>) -> ResBody {
     Full::new(Bytes::from(bytes))
         .map_err(|never| match never {})
         .boxed()
@@ -298,6 +468,43 @@ mod tests {
         apply_request_headers(&mut h, &o);
         assert_eq!(h["x-a"], "1");
         assert_eq!(h["x-b"], "2");
+    }
+
+    #[test]
+    fn res_body_rewrite_combines() {
+        let o = ops(
+            "example.com resReplace://foo=bar htmlPrepend://<x> htmlAppend://</x>",
+            "http",
+            "example.com",
+            "/",
+        );
+        assert!(has_res_body_rewrite(&o));
+        let out = rewrite_res_body(b"foo middle foo", &o);
+        assert_eq!(String::from_utf8(out).unwrap(), "<x>bar middle bar</x>");
+    }
+
+    #[test]
+    fn res_body_whole_replace() {
+        let o = ops("example.com resBody://hello", "http", "example.com", "/");
+        let out = rewrite_res_body(b"original", &o);
+        assert_eq!(String::from_utf8(out).unwrap(), "hello");
+    }
+
+    #[test]
+    fn method_and_status_and_delay() {
+        let o = ops(
+            "example.com method://post replaceStatus://201 resDelay://50",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut parts = hyper::Request::new(()).into_parts().0;
+        override_method(&o, &mut parts);
+        assert_eq!(parts.method, hyper::Method::POST);
+        let mut st = StatusCode::OK;
+        override_status(&o, &mut st);
+        assert_eq!(st, StatusCode::CREATED);
+        assert_eq!(res_delay(&o), Some(std::time::Duration::from_millis(50)));
     }
 
     #[test]

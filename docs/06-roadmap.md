@@ -41,13 +41,17 @@
 - 上游路由：`proxy`/`https-proxy`/`socks`/`pac`，本地 SOCKS5 入站。
 - **产出**：覆盖 WS/TCP 抓包与级联代理场景。
 
-## M6 · P1 协议横向铺开
-- Body 改写与注入（`reqBody`/`resBody`/`*Replace`/`html*`/`js*`/`css*`/`style`/`*Script`）。
-- 头/Cookie 细节（`headerReplace`/`referer`/`ua`/`forwardedFor`/`*Cors`/`auth`/`*Charset`）。
-- 网络模拟（`reqDelay`/`resDelay`/`reqSpeed`/`resSpeed`）。
-- 状态/重写（`replaceStatus`/`method`/`urlParams`/`pathReplace`/`locationHref`/`attachment`）。
-- 规则注入（`reqRules`/`resRules`/`inherit`/`includeFilter`/`excludeFilter`/`skip`）。
-- **产出**：覆盖绝大多数日常调试场景。
+## M6 · P1 协议横向铺开 — 🟡 进行中（主体已完成）
+- [x] Body 改写与注入：`reqBody`/`resBody`、`reqReplace`/`resReplace`、
+  `reqPrepend`/`reqAppend`/`resPrepend`/`resAppend`、`html*`/`js*`/`css*`（Prepend/Append/Body）。
+  （仅当命中 body 改写规则时才缓冲 body，否则保持流式转发。）
+- [x] 头/Cookie：`reqCookies`/`resCookies`、`attachment`（`referer`/`ua` 已于 M2 完成）。
+- [x] 网络模拟：`reqDelay`/`resDelay`（`reqSpeed`/`resSpeed` 待补）。
+- [x] 状态/方法：`replaceStatus`、`method`。
+- 待补：`headerReplace`/`forwardedFor`/`*Cors`/`auth`/`*Charset`、`urlParams`/`pathReplace`/
+  `locationHref`、规则注入类（`reqRules`/`resRules`/`includeFilter`/`excludeFilter`/`skip`）。
+- 端到端验证：resReplace+html(Pre/Ap)pend、resBody、replaceStatus 均生效。
+- **产出**：覆盖绝大多数日常调试场景（mock body、注入脚本、改状态、延迟）。
 
 ## M7 · 插件体系
 - `whistle-plugin`：兼容「插件即本地 HTTP 服务」模型，支持 `plugin://`、`plugin-vars`、`pipe`。
