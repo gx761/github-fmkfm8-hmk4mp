@@ -53,12 +53,12 @@ cargo test --workspace
 Cargo.toml                 # workspace
 crates/
 ├── whistle-cli/           # `w2r` 命令行入口（二进制）✅
-├── whistle-core/          # 代理内核：监听/转发/MITM/WS/规则应用(apply) ✅
+├── whistle-core/          # 代理内核：监听/转发/MITM/WS 中继/抓包调度 ✅
 ├── whistle-rules/         # 规则 DSL：解析/匹配/求值 ✅
+├── whistle-inspectors/    # 各规则协议的请求/响应改写实现 ✅
 ├── whistle-tls/           # CA 生成与动态证书签发（HTTPS MITM）✅
 ├── whistle-capture/       # 抓包数据模型/存储/事件流 ✅
 ├── whistle-web/           # axum 管理面 API + UI + WS 推送 ✅
-├── whistle-inspectors/    # （占位）inspector 当前内置于 whistle-core::apply，待抽出
 ├── whistle-proto/         # （占位）HTTP/2·SOCKS 等协议处理
 └── whistle-plugin/        # （占位）插件协议与调度
 docs/                      # 设计文档（见下）
