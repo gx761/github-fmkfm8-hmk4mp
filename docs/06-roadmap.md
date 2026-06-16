@@ -40,9 +40,9 @@
 - [x] WebSocket：`ws://`（HTTP 代理路径）与 `wss://`（MITM 解密后）升级转发；
   转发握手、101 后双向中继升级连接，记录为 `ws`/`wss` 流量。端到端验证 ws 回显通过。
 - [x] TCP：`--no-decrypt` 下 CONNECT 走盲隧道（字节级双向转发）。
-- 待补：WS 帧级抓取（当前为字节级中继）；上游路由 `proxy`/`https-proxy`/`socks`/`pac`、
-  本地 SOCKS5 入站。
-- **产出**：浏览器 WebSocket 可经代理正常工作（含 wss 解密路径）。
+- [x] 上游 HTTP 代理 `proxy://`（明文 HTTP，absolute-form 转发）；端到端验证两级代理链路通过。
+- 待补：WS 帧级抓取（当前为字节级中继）；HTTPS 经上游代理、`socks`/`pac`、本地 SOCKS5 入站。
+- **产出**：浏览器 WebSocket 可经代理正常工作；支持级联到上游 HTTP 代理。
 
 ## M6 · P1 协议横向铺开 — 🟡 进行中（主体已完成）
 - [x] Body 改写与注入：`reqBody`/`resBody`、`reqReplace`/`resReplace`、

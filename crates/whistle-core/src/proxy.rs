@@ -133,11 +133,17 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
         return handle_ws(req, &up_host, up_port, None, traffic, ctx.store.clone()).await;
     }
 
-    let sender = match connect_plain(&up_host, up_port).await {
+    // 上游 HTTP 代理（proxy://）：连到代理并以 absolute-form 转发。
+    let (connect_host, connect_port, keep_absolute) = match apply::upstream_proxy(&ops) {
+        Some((ph, pp)) => (ph, pp, true),
+        None => (up_host, up_port, false),
+    };
+
+    let sender = match connect_plain(&connect_host, connect_port).await {
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
-    send_and_capture(sender, req, &ops, traffic, store).await
+    send_and_capture(sender, req, &ops, traffic, store, keep_absolute).await
 }
 
 /// CONNECT：MITM 解密或盲隧道。
@@ -284,7 +290,7 @@ async fn handle_https(
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
-    send_and_capture(sender, req, &ops, traffic, store).await
+    send_and_capture(sender, req, &ops, traffic, store, false).await
 }
 
 /// 是否为 WebSocket 升级请求。
@@ -449,22 +455,28 @@ async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<Res
 }
 
 /// 转发请求到上游、应用请求/响应改写（含 body）、记录抓包。
+///
+/// `keep_absolute=true` 时保留原始 absolute-form URI（用于经上游 HTTP 代理转发），
+/// 否则改写为 origin-form 并合并 urlParams。
 async fn send_and_capture(
     mut sender: SendRequest<ResBody>,
     req: Request<Incoming>,
     ops: &[Operation],
     mut traffic: Traffic,
     store: &CaptureStore,
+    keep_absolute: bool,
 ) -> Response<ResBody> {
     let (mut parts, body) = req.into_parts();
-    let pq = parts
-        .uri
-        .path_and_query()
-        .map(|p| p.as_str())
-        .unwrap_or("/")
-        .to_string();
-    let pq = apply::merge_url_params(&pq, ops);
-    parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
+    if !keep_absolute {
+        let pq = parts
+            .uri
+            .path_and_query()
+            .map(|p| p.as_str())
+            .unwrap_or("/")
+            .to_string();
+        let pq = apply::merge_url_params(&pq, ops);
+        parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
+    }
     remove_hop_headers(&mut parts.headers);
     apply::apply_request_headers(&mut parts.headers, ops);
     apply::override_method(ops, &mut parts);

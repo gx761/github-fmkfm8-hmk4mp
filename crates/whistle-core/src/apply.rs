@@ -346,6 +346,16 @@ pub(crate) fn set_content_length(headers: &mut HeaderMap, len: usize) {
     }
 }
 
+/// `proxy://`(或 `http-proxy://`)：上游 HTTP 代理地址 `(host, port)`。
+pub(crate) fn upstream_proxy(ops: &[Operation]) -> Option<(String, u16)> {
+    let v = last_value(ops, "proxy").or_else(|| last_value(ops, "http-proxy"))?;
+    let v = v.rsplit("://").next().unwrap_or(v);
+    match v.rsplit_once(':') {
+        Some((h, p)) => Some((h.to_string(), p.parse().unwrap_or(80))),
+        None => Some((v.to_string(), 80)),
+    }
+}
+
 /// 解析 `host://` 的值为 `(host, Option<port>)`。
 fn parse_host(value: &str) -> (String, Option<u16>) {
     // 容忍 `host://1.2.3.4:8080` 里再带 scheme 的少见写法。
