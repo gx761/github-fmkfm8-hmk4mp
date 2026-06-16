@@ -78,6 +78,7 @@ pub async fn start(config: Config) -> Result<()> {
             store: store.clone(),
             rules: rules.clone(),
             rules_text: Arc::new(RwLock::new(rules_text)),
+            proxy_addr: format!("{}:{}", config.host, config.port),
         };
         let ui_addr = config.ui_addr();
         match ui_addr.parse::<std::net::SocketAddr>() {

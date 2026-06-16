@@ -44,6 +44,7 @@
   <span class="meta" id="meta">连接中…</span>
   <span class="spacer"></span>
   <button id="btn-rules">规则</button>
+  <button id="btn-compose">Composer</button>
   <button id="btn-clear">清空</button>
   <span class="meta" id="wsstate">●</span>
 </header>
@@ -59,6 +60,7 @@
     <div class="tabs">
       <button data-pane="detail" class="active">详情</button>
       <button data-pane="rules">规则</button>
+      <button data-pane="compose">Composer</button>
       <button class="spacer" style="border:none;background:none;cursor:default;flex:1"></button>
       <button id="btn-close">×</button>
     </div>
@@ -68,6 +70,23 @@
         <p>编辑规则（保存即生效，无需重启）：</p>
         <textarea id="rules-text" spellcheck="false"></textarea>
         <div style="margin-top:8px"><button id="btn-save">保存规则</button> <span id="rules-msg"></span></div>
+      </div>
+    </div>
+    <div class="pane" id="pane-compose">
+      <div class="panel">
+        <p>构造并回放请求（经由本机代理，自动套用规则并产生抓包）：</p>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <select id="cmp-method" style="font:inherit;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px">
+            <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option><option>HEAD</option>
+          </select>
+          <input id="cmp-url" placeholder="http://host/path" style="flex:1;font:inherit;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px" />
+        </div>
+        <h3>请求头（每行 Name: Value）</h3>
+        <textarea id="cmp-headers" spellcheck="false" style="height:120px"></textarea>
+        <h3>请求体</h3>
+        <textarea id="cmp-body" spellcheck="false" style="height:120px"></textarea>
+        <div style="margin-top:8px"><button id="btn-send">发送</button> <span id="cmp-msg"></span></div>
+        <div id="cmp-resp"></div>
       </div>
     </div>
   </div>
@@ -148,6 +167,27 @@ function switchPane(name){
 document.querySelectorAll('.tabs button[data-pane]').forEach(b=> b.onclick=()=>switchPane(b.dataset.pane));
 $('#btn-close').onclick = () => { $('#right').classList.remove('open'); selected=null; document.querySelectorAll('tr.row').forEach(r=>r.classList.remove('sel')); };
 $('#btn-rules').onclick = () => { $('#right').classList.add('open'); switchPane('rules'); };
+$('#btn-compose').onclick = () => { $('#right').classList.add('open'); switchPane('compose'); };
+$('#btn-send').onclick = async () => {
+  const headers = {};
+  $('#cmp-headers').value.split('\n').forEach(line => {
+    const i = line.indexOf(':');
+    if(i>0){ const name=line.slice(0,i).trim(), value=line.slice(i+1).trim(); if(name) headers[name]=value; }
+  });
+  const payload = { method: $('#cmp-method').value, url: $('#cmp-url').value.trim(), headers };
+  const body = $('#cmp-body').value;
+  if(body) payload.body = body;
+  $('#cmp-msg').textContent = '发送中…'; $('#cmp-msg').className=''; $('#cmp-resp').innerHTML='';
+  try {
+    const j = await (await fetch('api/compose',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})).json();
+    if(j.ok){
+      $('#cmp-msg').className='ok'; $('#cmp-msg').textContent = `状态 ${j.status}`;
+      $('#cmp-resp').innerHTML = `<h3>响应头</h3><pre>${esc(j.headers)}</pre><h3>响应体</h3><pre>${esc(j.body)}</pre>`;
+    } else {
+      $('#cmp-msg').className='err'; $('#cmp-msg').textContent = `错误：${j.error}`;
+    }
+  } catch(e){ $('#cmp-msg').className='err'; $('#cmp-msg').textContent = `错误：${e}`; }
+};
 $('#btn-clear').onclick = async () => { await fetch('api/traffic',{method:'DELETE'}); rowsEl.innerHTML=''; byId.clear(); emptyEl.style.display=''; };
 $('#btn-save').onclick = async () => {
   const text = $('#rules-text').value;

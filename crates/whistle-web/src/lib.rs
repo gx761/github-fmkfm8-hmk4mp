@@ -3,16 +3,19 @@
 //! 对应 whistle 的 `lib/service` 与 Web UI 后端。共享代理内核的抓包存储与规则，
 //! 支持在线编辑规则并热生效（无需重启）。
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tracing::{debug, info};
 use whistle_capture::CaptureStore;
 use whistle_rules::RuleSet;
@@ -25,6 +28,8 @@ pub struct WebState {
     pub store: Arc<CaptureStore>,
     pub rules: Arc<RwLock<RuleSet>>,
     pub rules_text: Arc<RwLock<String>>,
+    /// 代理监听地址 `host:port`，Composer 通过它回放请求（从而自动套用规则与抓包）。
+    pub proxy_addr: String,
 }
 
 /// 启动 Web 管理面，监听 `addr`。
@@ -43,6 +48,7 @@ pub fn router(state: WebState) -> Router {
         .route("/api/traffic", get(list_handler).delete(clear_handler))
         .route("/api/traffic/{id}", get(get_handler))
         .route("/api/rules", put(put_rules_handler).get(get_rules_handler))
+        .route("/api/compose", post(compose_handler))
         .route("/ws", get(ws_handler))
         .with_state(state)
 }
@@ -96,6 +102,91 @@ async fn put_rules_handler(State(s): State<WebState>, body: String) -> impl Into
     }
 }
 
+/// Composer 请求体：回放一条 HTTP 请求。
+#[derive(Deserialize)]
+struct ComposeRequest {
+    method: String,
+    url: String,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+/// Composer：把请求经由本机代理回放，从而自动套用规则并产生抓包记录。
+async fn compose_handler(State(s): State<WebState>, Json(req): Json<ComposeRequest>) -> Response {
+    // 目前仅支持明文 http://（经由代理以绝对形式转发）。
+    if !req.url.starts_with("http://") {
+        return Json(json!({ "ok": false, "error": "Composer 暂仅支持 http:// 目标" }))
+            .into_response();
+    }
+    match replay_through_proxy(&s.proxy_addr, &req).await {
+        Ok((status, headers, body)) => Json(json!({
+            "ok": true,
+            "status": status,
+            "headers": headers,
+            "body": body,
+        }))
+        .into_response(),
+        Err(e) => Json(json!({ "ok": false, "error": e.to_string() })).into_response(),
+    }
+}
+
+/// 手写极简 HTTP/1.1 客户端：连到代理，发绝对形式请求，读到 EOF。
+/// 返回 `(状态码, 原始响应头块, 响应体 utf-8 lossy)`。
+async fn replay_through_proxy(
+    proxy_addr: &str,
+    req: &ComposeRequest,
+) -> std::io::Result<(u16, String, String)> {
+    // 从 URL 推导 Host 头（authority 部分）。
+    let authority = req
+        .url
+        .strip_prefix("http://")
+        .unwrap_or(&req.url)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+
+    let mut request = format!("{} {} HTTP/1.1\r\n", req.method, req.url);
+    request.push_str(&format!("Host: {authority}\r\n"));
+    request.push_str("Connection: close\r\n");
+    for (name, value) in &req.headers {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    let body = req.body.as_deref().unwrap_or("");
+    if !body.is_empty() {
+        request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+
+    let mut stream = TcpStream::connect(proxy_addr).await?;
+    stream.write_all(request.as_bytes()).await?;
+    stream.flush().await?;
+
+    // 因 Connection: close，代理会在响应完整后关闭连接，读到 EOF 即可。
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await?;
+
+    // 在首个 \r\n\r\n 处分割：前半为状态行 + 响应头，后半为响应体。
+    let (head, body_bytes) = match buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        Some(pos) => (&buf[..pos], &buf[pos + 4..]),
+        None => (&buf[..], &b""[..]),
+    };
+    let head = String::from_utf8_lossy(head).into_owned();
+    let body = String::from_utf8_lossy(body_bytes).into_owned();
+
+    // 状态行形如 `HTTP/1.1 200 OK`，取第二段为状态码。
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+
+    Ok((status, head, body))
+}
+
 async fn ws_handler(State(s): State<WebState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| ws_loop(socket, s))
 }
@@ -131,6 +222,7 @@ mod tests {
             store: Arc::new(CaptureStore::new(100)),
             rules: Arc::new(RwLock::new(RuleSet::default())),
             rules_text: Arc::new(RwLock::new(String::new())),
+            proxy_addr: "127.0.0.1:0".to_string(),
         }
     }
 
