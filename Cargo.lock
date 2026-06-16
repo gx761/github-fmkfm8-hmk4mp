@@ -1364,6 +1364,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "whistle-capture",
+ "whistle-inspectors",
  "whistle-rules",
  "whistle-tls",
  "whistle-web",
@@ -1372,6 +1373,13 @@ dependencies = [
 [[package]]
 name = "whistle-inspectors"
 version = "0.0.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "tracing",
+ "whistle-rules",
+]
 
 [[package]]
 name = "whistle-plugin"

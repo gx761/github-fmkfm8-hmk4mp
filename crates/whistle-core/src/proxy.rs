@@ -23,8 +23,8 @@ use whistle_capture::{CaptureStore, Header, Traffic};
 use whistle_rules::{MatchInput, Operation, RuleSet};
 use whistle_tls::CertAuthority;
 
-use crate::apply::{self, RequestAction, ResBody};
 use crate::Config;
+use whistle_inspectors::{self as apply, RequestAction, ResBody};
 
 /// 共享的请求上下文（跨连接克隆 Arc）。
 #[derive(Clone)]

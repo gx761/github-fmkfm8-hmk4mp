@@ -7,6 +7,7 @@ description = "whistle-rs 代理内核：监听、连接、转发、隧道、MIT
 
 [dependencies]
 whistle-capture.workspace = true
+whistle-inspectors.workspace = true
 whistle-rules.workspace = true
 whistle-tls.workspace = true
 whistle-web.workspace = true

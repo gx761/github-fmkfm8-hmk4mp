@@ -6,7 +6,6 @@
 //! M1：HTTP 转发代理 + 抓包；M2：规则引擎 + P0 协议；
 //! M3：HTTPS 中间人解密（动态签发证书）。
 
-pub mod apply;
 pub mod config;
 pub mod proxy;
 mod ws;
