@@ -88,6 +88,38 @@ pub(crate) fn apply_request_headers(headers: &mut HeaderMap, ops: &[Operation]) 
     if let Some(origin) = last_value(ops, "reqCors") {
         set_header(headers, "origin", origin);
     }
+    // forwardedFor://value → 覆盖 X-Forwarded-For 头。
+    if let Some(ip) = last_value(ops, "forwardedFor") {
+        set_header(headers, "x-forwarded-for", ip);
+    }
+    // headerReplace://name=from|to → 对已存在的请求头做字符串替换。
+    for v in all_values(ops, "headerReplace") {
+        apply_header_replace(headers, v);
+    }
+    // delete://reqHeaders.NAME → 删除请求头。
+    for target in all_values(ops, "delete") {
+        if let Some(name) = target.strip_prefix("reqHeaders.") {
+            headers.remove(name);
+        }
+    }
+}
+
+/// `headerReplace://name=from|to`：若请求头 `name` 存在且其值包含 `from`，
+/// 则将出现的 `from` 替换为 `to` 并写回。格式非法则跳过。
+fn apply_header_replace(headers: &mut HeaderMap, value: &str) {
+    // 先以第一个 `=` 切出 name 与 rest，再以第一个 `|` 切出 from 与 to。
+    let Some((name, rest)) = value.split_once('=') else {
+        return;
+    };
+    let Some((from, to)) = rest.split_once('|') else {
+        return;
+    };
+    if let Some(existing) = headers.get(name).and_then(|v| v.to_str().ok()) {
+        if existing.contains(from) {
+            let replaced = existing.replace(from, to);
+            set_header(headers, name, &replaced);
+        }
+    }
 }
 
 /// 应用响应阶段操作（转发场景）。
@@ -128,6 +160,12 @@ pub(crate) fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Op
                 "access-control-allow-credentials",
                 "true",
             );
+        }
+    }
+    // delete://resHeaders.NAME → 删除响应头。
+    for target in all_values(ops, "delete") {
+        if let Some(name) = target.strip_prefix("resHeaders.") {
+            parts.headers.remove(name);
         }
     }
 }
@@ -641,6 +679,89 @@ mod tests {
         let mut parts = hyper::Response::new(()).into_parts().0;
         apply_response(&mut parts, &o2);
         assert_eq!(parts.headers["access-control-allow-origin"], "*");
+    }
+
+    #[test]
+    fn forwarded_for_sets_header() {
+        let o = ops(
+            "example.com forwardedFor://1.2.3.4",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut h = HeaderMap::new();
+        apply_request_headers(&mut h, &o);
+        assert_eq!(h["x-forwarded-for"], "1.2.3.4");
+    }
+
+    #[test]
+    fn delete_removes_req_header() {
+        let o = ops(
+            "example.com delete://reqHeaders.x-foo",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut h = HeaderMap::new();
+        h.insert("x-foo", HeaderValue::from_static("bar"));
+        apply_request_headers(&mut h, &o);
+        assert!(!h.contains_key("x-foo"));
+    }
+
+    #[test]
+    fn delete_removes_res_header() {
+        let o = ops(
+            "example.com delete://resHeaders.server",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut parts = hyper::Response::new(()).into_parts().0;
+        parts
+            .headers
+            .insert("server", HeaderValue::from_static("nginx"));
+        apply_response(&mut parts, &o);
+        assert!(!parts.headers.contains_key("server"));
+    }
+
+    #[test]
+    fn header_replace_rewrites_value() {
+        let o = ops(
+            "example.com headerReplace://user-agent=curl|whistle-rs",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut h = HeaderMap::new();
+        h.insert("user-agent", HeaderValue::from_static("curl/8.0"));
+        apply_request_headers(&mut h, &o);
+        assert_eq!(h["user-agent"], "whistle-rs/8.0");
+    }
+
+    #[test]
+    fn header_replace_skips_missing_and_malformed() {
+        // 头不存在：保持无该头。
+        let o = ops(
+            "example.com headerReplace://x-none=a|b",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut h = HeaderMap::new();
+        apply_request_headers(&mut h, &o);
+        assert!(!h.contains_key("x-none"));
+
+        // 格式非法（缺少 `|`）：原值不变。
+        let o2 = ops(
+            "example.com headerReplace://user-agent=curl",
+            "http",
+            "example.com",
+            "/",
+        );
+        let mut h2 = HeaderMap::new();
+        h2.insert("user-agent", HeaderValue::from_static("curl/8.0"));
+        apply_request_headers(&mut h2, &o2);
+        assert_eq!(h2["user-agent"], "curl/8.0");
     }
 
     #[test]

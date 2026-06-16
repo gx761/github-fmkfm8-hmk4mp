@@ -6,6 +6,7 @@
 # 当前已实现的协议：
 #   转发/Mock : host  redirect  file  rawfile  statusCode
 #   头/Cookie : reqHeaders resHeaders reqCookies resCookies reqType resType ua referer attachment
+#               forwardedFor  headerReplace  delete
 #   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
 #   状态/方法 : replaceStatus  method
 #   时延      : reqDelay  resDelay
@@ -40,3 +41,6 @@ api.example.com resCors://* auth://user:pass urlParams://debug=1
 
 # 10) 模拟弱网：请求/响应各延迟 500ms；并改写返回状态
 slow.example.com reqDelay://500 resDelay://500 replaceStatus://200
+
+# 11) 伪造来源 IP、删除响应 Server 头、改写 UA 中的关键字
+secure.example.com forwardedFor://1.2.3.4 delete://resHeaders.server headerReplace://user-agent=Mozilla|whistle-rs
