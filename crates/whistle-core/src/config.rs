@@ -10,6 +10,9 @@ pub const DEFAULT_PROXY_PORT: u16 = 8899;
 /// 抓包存储默认容量（最近 N 条）。
 pub const DEFAULT_CAPTURE_CAPACITY: usize = 5000;
 
+/// 抓包正文预览默认上限（字节）。超过此长度的已知长度正文不缓冲（保持流式）。
+pub const DEFAULT_CAPTURE_BODY_LIMIT: usize = 512 * 1024;
+
 /// Web 管理界面默认端口。
 pub const DEFAULT_UI_PORT: u16 = 8900;
 
@@ -22,6 +25,8 @@ pub struct Config {
     pub host: String,
     /// 抓包存储容量（最近 N 条）。
     pub capture_capacity: usize,
+    /// 抓包正文预览上限（字节）。
+    pub capture_body_limit: usize,
     /// 规则文件路径（可选）。
     pub rules_file: Option<String>,
     /// 数据目录（CA、配置等）；None 时用 `~/.whistle-rs`。
@@ -40,6 +45,7 @@ impl Default for Config {
             port: DEFAULT_PROXY_PORT,
             host: "127.0.0.1".to_string(),
             capture_capacity: DEFAULT_CAPTURE_CAPACITY,
+            capture_body_limit: DEFAULT_CAPTURE_BODY_LIMIT,
             rules_file: None,
             data_dir: None,
             decrypt_https: true,

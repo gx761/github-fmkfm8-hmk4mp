@@ -33,6 +33,7 @@ struct Ctx {
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
+    body_limit: usize,
 }
 
 /// 监听代理端口并处理连接，直到收到 Ctrl-C。
@@ -49,7 +50,15 @@ pub async fn serve(
         decrypt_https = config.decrypt_https,
         "whistle-rs 代理已启动"
     );
-    serve_listener(listener, store, rules, ca, config.decrypt_https).await
+    serve_listener(
+        listener,
+        store,
+        rules,
+        ca,
+        config.decrypt_https,
+        config.capture_body_limit,
+    )
+    .await
 }
 
 /// 在给定监听器上处理连接（便于测试注入端口）。直到收到 Ctrl-C 返回。
@@ -59,12 +68,14 @@ pub async fn serve_listener(
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
+    body_limit: usize,
 ) -> crate::Result<()> {
     let ctx = Ctx {
         store,
         rules,
         ca,
         decrypt_https,
+        body_limit,
     };
 
     loop {
@@ -154,7 +165,16 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
-    send_and_capture(sender, req, &ops, traffic, store, keep_absolute).await
+    send_and_capture(
+        sender,
+        req,
+        &ops,
+        traffic,
+        store,
+        keep_absolute,
+        ctx.body_limit,
+    )
+    .await
 }
 
 /// CONNECT：MITM 解密或盲隧道。
@@ -301,7 +321,7 @@ async fn handle_https(
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
-    send_and_capture(sender, req, &ops, traffic, store, false).await
+    send_and_capture(sender, req, &ops, traffic, store, false, ctx.body_limit).await
 }
 
 /// 是否为 WebSocket 升级请求。
@@ -476,6 +496,7 @@ async fn send_and_capture(
     mut traffic: Traffic,
     store: &CaptureStore,
     keep_absolute: bool,
+    body_limit: usize,
 ) -> Response<ResBody> {
     let (mut parts, body) = req.into_parts();
     if !keep_absolute {
@@ -497,13 +518,21 @@ async fn send_and_capture(
         tokio::time::sleep(d).await;
     }
 
-    // 请求体：需要改写则缓冲，否则流式透传。
-    let req_body: ResBody = if apply::has_req_body_rewrite(ops) {
+    // 请求体：需改写或可抓包（已知长度且不超限）时缓冲，否则流式透传。
+    let req_rewrite = apply::has_req_body_rewrite(ops);
+    let req_body: ResBody = if req_rewrite || body_within_limit(&parts.headers, body_limit) {
         match body.collect().await {
             Ok(c) => {
-                let new = apply::rewrite_req_body(&c.to_bytes(), ops);
-                apply::set_content_length(&mut parts.headers, new.len());
-                apply::full_body(new)
+                let bytes = c.to_bytes();
+                let out = if req_rewrite {
+                    let new = apply::rewrite_req_body(&bytes, ops);
+                    apply::set_content_length(&mut parts.headers, new.len());
+                    new
+                } else {
+                    bytes.to_vec()
+                };
+                traffic.set_req_body(&out, body_limit);
+                apply::full_body(out)
             }
             Err(e) => {
                 return finish_error(
@@ -529,13 +558,22 @@ async fn send_and_capture(
                 tokio::time::sleep(d).await;
             }
 
-            // 响应体：需要改写则缓冲，否则流式透传。
-            let res_body: ResBody = if apply::has_res_body_rewrite(ops) {
+            // 响应体：需改写或可抓包（已知长度且不超限）时缓冲，否则流式透传。
+            let res_rewrite = apply::has_res_body_rewrite(ops);
+            let res_body: ResBody = if res_rewrite || body_within_limit(&rparts.headers, body_limit)
+            {
                 match body.collect().await {
                     Ok(c) => {
-                        let new = apply::rewrite_res_body(&c.to_bytes(), ops);
-                        apply::set_content_length(&mut rparts.headers, new.len());
-                        apply::full_body(new)
+                        let bytes = c.to_bytes();
+                        let out = if res_rewrite {
+                            let new = apply::rewrite_res_body(&bytes, ops);
+                            apply::set_content_length(&mut rparts.headers, new.len());
+                            new
+                        } else {
+                            bytes.to_vec()
+                        };
+                        traffic.set_res_body(&out, body_limit);
+                        apply::full_body(out)
                     }
                     Err(e) => {
                         return finish_error(
@@ -563,6 +601,16 @@ async fn send_and_capture(
             &format!("上游请求失败: {e}"),
         ),
     }
+}
+
+/// 响应/请求是否有「已知且不超限」的正文长度（决定是否缓冲抓包）。
+fn body_within_limit(headers: &hyper::HeaderMap, limit: usize) -> bool {
+    headers
+        .get(hyper::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|n| n > 0 && n <= limit)
+        .unwrap_or(false)
 }
 
 /// 记录 mock 响应并返回。

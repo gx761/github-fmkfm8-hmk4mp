@@ -42,6 +42,16 @@ pub struct Traffic {
     pub duration_ms: Option<u64>,
     /// 命中的规则操作（如 `host://1.2.3.4`）。
     pub rules: Vec<String>,
+    /// 请求体预览（UTF-8 lossy，可能截断）。
+    pub req_body: Option<String>,
+    /// 响应体预览（UTF-8 lossy，可能截断）。
+    pub res_body: Option<String>,
+    /// 请求体原始字节数。
+    pub req_body_size: u64,
+    /// 响应体原始字节数。
+    pub res_body_size: u64,
+    /// 响应体预览是否被截断。
+    pub res_body_truncated: bool,
     /// 错误信息（如有）。
     pub error: Option<String>,
 }
@@ -62,8 +72,28 @@ impl Traffic {
             start_time: now_ms(),
             duration_ms: None,
             rules: Vec::new(),
+            req_body: None,
+            res_body: None,
+            req_body_size: 0,
+            res_body_size: 0,
+            res_body_truncated: false,
             error: None,
         }
+    }
+
+    /// 记录请求体预览（截断到 `limit` 字节）。
+    pub fn set_req_body(&mut self, bytes: &[u8], limit: usize) {
+        self.req_body_size = bytes.len() as u64;
+        let take = bytes.len().min(limit);
+        self.req_body = Some(String::from_utf8_lossy(&bytes[..take]).into_owned());
+    }
+
+    /// 记录响应体预览（截断到 `limit` 字节）。
+    pub fn set_res_body(&mut self, bytes: &[u8], limit: usize) {
+        self.res_body_size = bytes.len() as u64;
+        let take = bytes.len().min(limit);
+        self.res_body = Some(String::from_utf8_lossy(&bytes[..take]).into_owned());
+        self.res_body_truncated = bytes.len() > limit;
     }
 
     /// 标记完成并计算耗时。

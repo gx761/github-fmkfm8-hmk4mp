@@ -103,6 +103,11 @@ function headersTable(hs){
   if(!hs||!hs.length) return '<pre>(无)</pre>';
   return '<pre>'+hs.map(h=>esc(h.name)+': '+esc(h.value)).join('\n')+'</pre>';
 }
+function bodyBlock(title, body, size, truncated){
+  if(body==null) return size? `<h3>${title}</h3><pre>(未抓取，${size} 字节)</pre>` : '';
+  const note = truncated ? ` <span class="proto">（已截断，共 ${size} 字节）</span>` : (size?` <span class="proto">（${size} 字节）</span>`:'');
+  return `<h3>${title}${note}</h3><pre>${esc(body)}</pre>`;
+}
 function refreshDetail(t){
   $('#detail').innerHTML =
     `<h3>${esc(t.method)} ${esc(t.url)}</h3>`+
@@ -110,7 +115,9 @@ function refreshDetail(t){
     (t.error?`<div class="err">错误：${esc(t.error)}</div>`:'')+
     (t.rules&&t.rules.length?`<h3>命中规则</h3><pre>${esc(t.rules.join('\n'))}</pre>`:'')+
     `<h3>请求头</h3>${headersTable(t.req_headers)}`+
-    `<h3>响应头</h3>${headersTable(t.res_headers)}`;
+    bodyBlock('请求体', t.req_body, t.req_body_size, false)+
+    `<h3>响应头</h3>${headersTable(t.res_headers)}`+
+    bodyBlock('响应体', t.res_body, t.res_body_size, t.res_body_truncated);
 }
 function showDetail(id){
   selected = id;

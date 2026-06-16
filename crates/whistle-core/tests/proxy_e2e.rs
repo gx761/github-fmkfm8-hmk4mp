@@ -44,7 +44,8 @@ async fn spawn_proxy(rules_text: &str) -> (std::net::SocketAddr, Arc<CaptureStor
     let ca = Arc::new(CertAuthority::load_or_generate(&dir).unwrap());
     let store2 = store.clone();
     tokio::spawn(async move {
-        let _ = whistle_core::proxy::serve_listener(listener, store2, rules, ca, false).await;
+        let _ = whistle_core::proxy::serve_listener(listener, store2, rules, ca, false, 512 * 1024)
+            .await;
     });
     (addr, store)
 }
@@ -75,6 +76,8 @@ async fn host_rule_forwards_to_origin() {
     assert_eq!(list[0].status, Some(200));
     assert_eq!(list[0].protocol, "http");
     assert!(list[0].rules.iter().any(|r| r.contains("host://")));
+    // 响应体已被抓取（已知长度且不超限）。
+    assert_eq!(list[0].res_body.as_deref(), Some("HELLO-ORIGIN"));
 }
 
 #[tokio::test]
