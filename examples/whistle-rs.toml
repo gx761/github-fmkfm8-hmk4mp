@@ -1,0 +1,22 @@
+# whistle-rs 配置示例
+#
+# 用法：w2r start --config examples/whistle-rs.toml
+# 缺省字段会回落到内置默认值（见 whistle-core::config::Config::default）。
+
+# 代理监听端口（默认 8899）。
+port = 8899
+
+# Web 管理界面端口（默认 8900）。
+ui_port = 8900
+
+# 是否对 HTTPS（CONNECT）做中间人解密；false 时退化为盲隧道（默认 true）。
+decrypt_https = true
+
+# 规则文件路径（可选）。
+# rules_file = "examples/rules.txt"
+
+# 监听地址（默认 127.0.0.1）。
+# host = "127.0.0.1"
+
+# 数据目录（CA、配置）；缺省时使用 ~/.whistle-rs。
+# data_dir = "~/.whistle-rs"

@@ -22,6 +22,9 @@ struct Cli {
 enum Command {
     /// 启动代理服务。
     Start {
+        /// TOML 配置文件路径；提供时优先使用配置文件，忽略其它 start 参数。
+        #[arg(long)]
+        config: Option<String>,
         /// 代理监听端口。
         #[arg(short, long, default_value_t = whistle_core::config::DEFAULT_PROXY_PORT)]
         port: u16,
@@ -82,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Start {
+            config: config_path,
             port,
             rules,
             data_dir,
@@ -89,14 +93,22 @@ async fn main() -> anyhow::Result<()> {
             ui_port,
             no_ui,
         } => {
-            let config = Config {
-                port,
-                rules_file: rules,
-                data_dir,
-                decrypt_https: !no_decrypt,
-                ui_port,
-                ui_enabled: !no_ui,
-                ..Config::default()
+            // 提供 --config 时优先使用配置文件，忽略其它 start 参数。
+            let config = match config_path {
+                Some(path) => {
+                    let cfg = Config::from_toml_file(&path).map_err(anyhow::Error::msg)?;
+                    tracing::info!(%path, "已从配置文件加载");
+                    cfg
+                }
+                None => Config {
+                    port,
+                    rules_file: rules,
+                    data_dir,
+                    decrypt_https: !no_decrypt,
+                    ui_port,
+                    ui_enabled: !no_ui,
+                    ..Config::default()
+                },
             };
 
             // 启动前写入 PID 文件，供 stop/status 子命令读取。

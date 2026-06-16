@@ -17,7 +17,10 @@ pub const DEFAULT_CAPTURE_BODY_LIMIT: usize = 512 * 1024;
 pub const DEFAULT_UI_PORT: u16 = 8900;
 
 /// 全局运行配置。
+///
+/// `#[serde(default)]` 使部分字段的 TOML 文件也能解析：缺失字段回落到 `Default`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// 代理监听端口。
     pub port: u16,
@@ -56,6 +59,15 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 从 TOML 文件加载配置。
+    ///
+    /// 缺失字段回落到 `Default`（依赖结构体上的 `#[serde(default)]`）。
+    /// IO 与解析错误统一映射为 `String`。
+    pub fn from_toml_file(path: &str) -> Result<Config, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("读取配置失败: {e}"))?;
+        toml::from_str(&text).map_err(|e| format!("解析配置失败: {e}"))
+    }
+
     /// Web 管理界面监听地址。
     pub fn ui_addr(&self) -> String {
         format!("{}:{}", self.host, self.ui_port)
@@ -66,5 +78,39 @@ impl Config {
     /// `host:port` 形式的监听地址。
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_toml_falls_back_to_default() {
+        // 仅提供部分字段，其余应回落到 Default。
+        let cfg: Config = toml::from_str("port = 1234\nui_port = 4321").unwrap();
+        assert_eq!(cfg.port, 1234);
+        assert_eq!(cfg.ui_port, 4321);
+        // 未提供的字段使用默认值。
+        assert!(cfg.decrypt_https);
+        assert_eq!(cfg.host, "127.0.0.1");
+        assert_eq!(cfg.capture_capacity, DEFAULT_CAPTURE_CAPACITY);
+        assert!(cfg.rules_file.is_none());
+    }
+
+    #[test]
+    fn from_toml_file_reads_and_parses() {
+        // 写入临时文件并通过 from_toml_file 加载。
+        let mut path = std::env::temp_dir();
+        path.push(format!("whistle-rs-test-{}.toml", std::process::id()));
+        std::fs::write(&path, "port = 1234\nui_port = 4321").unwrap();
+
+        let cfg = Config::from_toml_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(cfg.port, 1234);
+        assert_eq!(cfg.ui_port, 4321);
+        assert!(cfg.decrypt_https);
+        assert_eq!(cfg.host, "127.0.0.1");
+
+        let _ = std::fs::remove_file(&path);
     }
 }
