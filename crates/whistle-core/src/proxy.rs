@@ -128,6 +128,11 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
         RequestAction::Forward { host, port } => (host, port),
     };
 
+    if is_ws_upgrade(req.headers()) {
+        traffic.protocol = "ws".to_string();
+        return handle_ws(req, &up_host, up_port, None, traffic, ctx.store.clone()).await;
+    }
+
     let sender = match connect_plain(&up_host, up_port).await {
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
@@ -225,6 +230,7 @@ async fn serve_mitm(
     });
     if let Err(e) = hyper::server::conn::http1::Builder::new()
         .serve_connection(TokioIo::new(tls), service)
+        .with_upgrades()
         .await
     {
         debug!(%e, "MITM 连接结束");
@@ -261,11 +267,130 @@ async fn handle_https(
         RequestAction::Forward { host, port } => (host, port),
     };
 
+    if is_ws_upgrade(req.headers()) {
+        traffic.protocol = "wss".to_string();
+        return handle_ws(
+            req,
+            &up_host,
+            up_port,
+            Some(host.to_string()),
+            traffic,
+            ctx.store.clone(),
+        )
+        .await;
+    }
+
     let sender = match connect_tls(&up_host, up_port, host).await {
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
     send_and_capture(sender, req, &ops, traffic, store).await
+}
+
+/// 是否为 WebSocket 升级请求。
+fn is_ws_upgrade(h: &hyper::HeaderMap) -> bool {
+    let upgrade = h
+        .get(hyper::header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.eq_ignore_ascii_case("websocket"));
+    let conn = h
+        .get(hyper::header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.to_ascii_lowercase().contains("upgrade"));
+    upgrade && conn
+}
+
+/// WebSocket 转发：转发握手到上游，101 后双向中继升级后的连接。
+/// `sni=Some(host)` 表示走 TLS（wss），`None` 为明文（ws）。
+async fn handle_ws(
+    mut req: Request<Incoming>,
+    up_host: &str,
+    up_port: u16,
+    sni: Option<String>,
+    mut traffic: Traffic,
+    store: Arc<CaptureStore>,
+) -> Response<ResBody> {
+    let mut sender = match &sni {
+        Some(host) => connect_tls(up_host, up_port, host).await,
+        None => connect_plain(up_host, up_port).await,
+    };
+    let sender = match &mut sender {
+        Ok(s) => s,
+        Err(e) => return finish_error(&store, &mut traffic, StatusCode::BAD_GATEWAY, e),
+    };
+
+    // 取客户端侧的升级 future（在消费 req 之前）。
+    let client_upgrade = hyper::upgrade::on(&mut req);
+
+    // 构造上游握手请求：origin-form，保留 Upgrade/Connection/Sec-WebSocket-* 头。
+    let (mut parts, _body) = req.into_parts();
+    let pq = parts
+        .uri
+        .path_and_query()
+        .map(|p| p.as_str())
+        .unwrap_or("/")
+        .to_string();
+    parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
+    let upstream_req = Request::from_parts(parts, apply::empty_body());
+
+    let mut upresp = match sender.send_request(upstream_req).await {
+        Ok(r) => r,
+        Err(e) => {
+            return finish_error(
+                &store,
+                &mut traffic,
+                StatusCode::BAD_GATEWAY,
+                &format!("上游 WS 握手失败: {e}"),
+            )
+        }
+    };
+
+    // 上游未切换协议：原样返回。
+    if upresp.status() != StatusCode::SWITCHING_PROTOCOLS {
+        let (rparts, body) = upresp.into_parts();
+        traffic.status = Some(rparts.status.as_u16());
+        traffic.res_headers = collect_headers(&rparts.headers);
+        traffic.finish();
+        store.upsert(traffic);
+        return Response::from_parts(rparts, body.map_err(Into::into).boxed());
+    }
+
+    let upstream_upgrade = hyper::upgrade::on(&mut upresp);
+
+    // 回给客户端的 101 响应：复制上游响应头（含 Sec-WebSocket-Accept）。
+    let mut client_resp = Response::new(apply::empty_body());
+    *client_resp.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+    *client_resp.headers_mut() = upresp.headers().clone();
+
+    traffic.status = Some(101);
+    traffic.res_headers = collect_headers(upresp.headers());
+    store.upsert(traffic.clone());
+
+    // 升级完成后双向中继。
+    let store2 = store.clone();
+    tokio::spawn(async move {
+        match tokio::join!(client_upgrade, upstream_upgrade) {
+            (Ok(client), Ok(upstream)) => {
+                let mut c = TokioIo::new(client);
+                let mut u = TokioIo::new(upstream);
+                match tokio::io::copy_bidirectional(&mut c, &mut u).await {
+                    Ok((up, down)) => debug!(up, down, "WS 中继结束"),
+                    Err(e) => debug!(%e, "WS 中继错误"),
+                }
+            }
+            (c, u) => {
+                traffic.error = Some(format!(
+                    "WS 升级失败: client={:?} upstream={:?}",
+                    c.err(),
+                    u.err()
+                ));
+            }
+        }
+        traffic.finish();
+        store2.upsert(traffic);
+    });
+
+    client_resp
 }
 
 /// 求值规则并写入 traffic.rules。
@@ -292,7 +417,8 @@ async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<ResBody>, St
         .await
         .map_err(|e| format!("上游握手失败: {e}"))?;
     tokio::spawn(async move {
-        if let Err(e) = conn.await {
+        // with_upgrades 以支持 WebSocket 等协议升级。
+        if let Err(e) = conn.with_upgrades().await {
             debug!(%e, "上游连接结束");
         }
     });
@@ -315,7 +441,7 @@ async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<Res
         .await
         .map_err(|e| format!("上游握手失败: {e}"))?;
     tokio::spawn(async move {
-        if let Err(e) = conn.await {
+        if let Err(e) = conn.with_upgrades().await {
             debug!(%e, "上游 TLS 连接结束");
         }
     });
