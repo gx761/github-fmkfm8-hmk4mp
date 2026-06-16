@@ -337,6 +337,7 @@ async fn send_and_capture(
         .map(|p| p.as_str())
         .unwrap_or("/")
         .to_string();
+    let pq = apply::merge_url_params(&pq, ops);
     parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
     remove_hop_headers(&mut parts.headers);
     apply::apply_request_headers(&mut parts.headers, ops);

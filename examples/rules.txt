@@ -3,8 +3,13 @@
 # 语法：<匹配模式> <协议>://<参数> ...
 # 用法：w2r start --rules examples/rules.txt
 #
-# 当前已实现的协议（M2 / P0）：
-#   host  redirect  file  rawfile  statusCode  reqHeaders  resHeaders  reqType  resType  ua  referer
+# 当前已实现的协议：
+#   转发/Mock : host  redirect  file  rawfile  statusCode
+#   头/Cookie : reqHeaders resHeaders reqCookies resCookies reqType resType ua referer attachment
+#   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
+#   状态/方法 : replaceStatus  method
+#   时延      : reqDelay  resDelay
+#   其它      : urlParams  auth  reqCors  resCors
 
 # 1) 把某域名的流量转发到本地服务（host:// 覆盖上游目标，保留原 Host 头）
 www.example.com host://127.0.0.1:8080
@@ -26,3 +31,12 @@ old.example.com redirect://https://new.example.com
 
 # 7) 通配符匹配子域名 + 覆盖 UA / 注入请求头
 *.test.example.com ua://whistle-rs/0.0 reqHeaders://x-debug=1
+
+# 8) 改写响应体：字符串替换 + 注入脚本
+example.com/page.html resReplace://OLD=NEW htmlAppend://<script>console.log('injected')</script>
+
+# 9) 注入 CORS 响应头、补 Basic 鉴权、追加查询参数
+api.example.com resCors://* auth://user:pass urlParams://debug=1
+
+# 10) 模拟弱网：请求/响应各延迟 500ms；并改写返回状态
+slow.example.com reqDelay://500 resDelay://500 replaceStatus://200

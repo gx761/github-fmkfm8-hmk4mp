@@ -76,6 +76,18 @@ pub(crate) fn apply_request_headers(headers: &mut HeaderMap, ops: &[Operation]) 
     if !cookies.is_empty() {
         merge_cookie_header(headers, &cookies);
     }
+    // auth://user:pass → Authorization: Basic。
+    if let Some(cred) = last_value(ops, "auth") {
+        set_header(
+            headers,
+            "authorization",
+            &format!("Basic {}", base64(cred.as_bytes())),
+        );
+    }
+    // reqCors://origin → 设置 Origin 头（模拟跨域）。
+    if let Some(origin) = last_value(ops, "reqCors") {
+        set_header(headers, "origin", origin);
+    }
 }
 
 /// 应用响应阶段操作（转发场景）。
@@ -101,6 +113,87 @@ pub(crate) fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Op
             &format!("attachment; filename=\"{name}\""),
         );
     }
+    // resCors://origin|* → 注入 CORS 响应头。
+    if let Some(origin) = last_value(ops, "resCors") {
+        set_header(&mut parts.headers, "access-control-allow-origin", origin);
+        set_header(
+            &mut parts.headers,
+            "access-control-allow-methods",
+            "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD",
+        );
+        set_header(&mut parts.headers, "access-control-allow-headers", "*");
+        if origin != "*" {
+            set_header(
+                &mut parts.headers,
+                "access-control-allow-credentials",
+                "true",
+            );
+        }
+    }
+}
+
+/// 标准 base64 编码（无外部依赖）。
+fn base64(input: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// `urlParams://a=1&b=2`：向请求 path_and_query 合并/覆盖查询参数。
+pub(crate) fn merge_url_params(pq: &str, ops: &[Operation]) -> String {
+    let additions = all_values(ops, "urlParams");
+    if additions.is_empty() {
+        return pq.to_string();
+    }
+    let (path, query) = match pq.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (pq, ""),
+    };
+    // 保留顺序的去重：后写覆盖先写。
+    let mut params: Vec<(String, String)> = Vec::new();
+    let put = |k: String, v: String, params: &mut Vec<(String, String)>| {
+        if let Some(slot) = params.iter_mut().find(|(ek, _)| *ek == k) {
+            slot.1 = v;
+        } else {
+            params.push((k, v));
+        }
+    };
+    for pair in query.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        put(k.to_string(), v.to_string(), &mut params);
+    }
+    for add in additions {
+        for pair in add.split('&').filter(|s| !s.is_empty()) {
+            let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+            put(k.to_string(), v.to_string(), &mut params);
+        }
+    }
+    let q = params
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{path}?{q}")
 }
 
 /// 合并若干 `a=1&b=2` 到现有 Cookie 头。
@@ -505,6 +598,39 @@ mod tests {
         override_status(&o, &mut st);
         assert_eq!(st, StatusCode::CREATED);
         assert_eq!(res_delay(&o), Some(std::time::Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn base64_basic() {
+        assert_eq!(base64(b"user:pass"), "dXNlcjpwYXNz");
+        assert_eq!(base64(b"a"), "YQ==");
+        assert_eq!(base64(b"ab"), "YWI=");
+    }
+
+    #[test]
+    fn url_params_merge_and_override() {
+        let o = ops(
+            "example.com urlParams://b=2&a=9",
+            "http",
+            "example.com",
+            "/",
+        );
+        // 已有 a=1 被覆盖为 9，新增 b=2。
+        assert_eq!(merge_url_params("/p?a=1", &o), "/p?a=9&b=2");
+        assert_eq!(merge_url_params("/p", &o), "/p?b=2&a=9");
+    }
+
+    #[test]
+    fn auth_and_cors_headers() {
+        let o = ops("example.com auth://user:pass", "http", "example.com", "/");
+        let mut h = HeaderMap::new();
+        apply_request_headers(&mut h, &o);
+        assert_eq!(h["authorization"], "Basic dXNlcjpwYXNz");
+
+        let o2 = ops("example.com resCors://*", "http", "example.com", "/");
+        let mut parts = hyper::Response::new(()).into_parts().0;
+        apply_response(&mut parts, &o2);
+        assert_eq!(parts.headers["access-control-allow-origin"], "*");
     }
 
     #[test]
