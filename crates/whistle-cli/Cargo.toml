@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 whistle-core.workspace = true
+tokio.workspace = true
 clap.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

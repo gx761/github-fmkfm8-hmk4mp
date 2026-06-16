@@ -3,29 +3,32 @@
 //! 对应 whistle 的 `lib/index.js`、`init.js`、`handlers/`、`tunnel.js` 等。
 //! 负责装配各子系统并驱动请求生命周期。设计见仓库 `docs/02-architecture.md`。
 //!
-//! 当前处于 M0 脚手架阶段：仅定义配置与生命周期入口的占位实现。
+//! M1：可作为系统代理转发明文 HTTP 请求并记录抓包；HTTPS（CONNECT）先做盲隧道
+//! 转发（解密在 M3 实现）。
 
 pub mod config;
+pub mod proxy;
+
+use std::sync::Arc;
 
 pub use config::Config;
+pub use whistle_capture::CaptureStore;
 
 /// 内核错误类型。
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// 尚未实现的功能（脚手架阶段占位）。
-    #[error("尚未实现: {0}")]
-    NotImplemented(&'static str),
+    /// IO / 绑定错误。
+    #[error("IO 错误: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// 内核操作结果类型。
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// 启动代理服务（占位）。
-///
-/// M1 将在此监听 [`Config::bind_addr`] 并接入请求处理管线。
-pub fn start(config: &Config) -> Result<()> {
-    tracing::info!(addr = %config.bind_addr(), "whistle-rs 代理内核启动（占位）");
-    Err(Error::NotImplemented("proxy core (计划于 M1 实现)"))
+/// 启动代理服务并阻塞运行，直到收到 Ctrl-C。
+pub async fn start(config: Config) -> Result<()> {
+    let store = Arc::new(CaptureStore::new(config.capture_capacity));
+    proxy::serve(config, store).await
 }
 
 #[cfg(test)]

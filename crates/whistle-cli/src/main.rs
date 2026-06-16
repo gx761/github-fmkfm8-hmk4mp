@@ -47,7 +47,8 @@ enum CaAction {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
@@ -57,13 +58,10 @@ fn main() -> anyhow::Result<()> {
                 port,
                 ..Config::default()
             };
-            match whistle_core::start(&config) {
-                Ok(()) => {}
-                Err(e) => tracing::warn!(%e, "尚未实现"),
-            }
+            whistle_core::start(config).await?;
         }
-        Command::Stop => tracing::warn!("stop 尚未实现（计划于 M1）"),
-        Command::Status => tracing::warn!("status 尚未实现（计划于 M1）"),
+        Command::Stop => tracing::warn!("stop 尚未实现（需进程间通信，计划于后续里程碑）"),
+        Command::Status => tracing::warn!("status 尚未实现（需进程间通信，计划于后续里程碑）"),
         Command::Ca { action } => match action {
             CaAction::Export { path } => {
                 tracing::warn!(%path, "ca export 尚未实现（计划于 M3）")

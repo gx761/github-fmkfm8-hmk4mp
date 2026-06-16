@@ -6,3 +6,6 @@ license.workspace = true
 description = "抓包数据模型、存储与实时事件流"
 
 [dependencies]
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true

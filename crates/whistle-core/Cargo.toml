@@ -6,6 +6,12 @@ license.workspace = true
 description = "whistle-rs 代理内核：监听、连接、转发、隧道、MITM 调度"
 
 [dependencies]
+whistle-capture.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 serde.workspace = true

@@ -1,10 +1,206 @@
-//! 抓包数据模型、存储与实时事件流
+//! 抓包数据模型、存储与实时事件流。
 //!
-//! 对应 whistle Network 面板的数据层。
-//!
-//! 当前处于 M0 脚手架阶段：仅占位，尚未实现。设计见仓库 `docs/`。
+//! 对应 whistle 的 Network 面板数据层。提供：
+//! - [`Traffic`]：单条流量记录；
+//! - [`CaptureStore`]：内存环形缓冲 + 实时事件广播（供 Web UI 订阅）。
 
-/// crate 版本（来自 Cargo 包版本）。
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+/// 一个 HTTP 头部键值对。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+}
+
+/// 单条流量记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Traffic {
+    /// 自增唯一 id。
+    pub id: u64,
+    /// 协议类别：`http` / `https` / `tunnel` / `ws`。
+    pub protocol: String,
+    pub method: String,
+    /// 完整 URL。
+    pub url: String,
+    pub host: String,
+    /// 客户端地址。
+    pub client: String,
+    /// 响应状态码（未完成时为 None）。
+    pub status: Option<u16>,
+    pub req_headers: Vec<Header>,
+    pub res_headers: Vec<Header>,
+    /// 请求开始时间（Unix 毫秒）。
+    pub start_time: u64,
+    /// 端到端耗时（毫秒，未完成时为 None）。
+    pub duration_ms: Option<u64>,
+    /// 命中的规则操作（如 `host://1.2.3.4`）。
+    pub rules: Vec<String>,
+    /// 错误信息（如有）。
+    pub error: Option<String>,
+}
+
+impl Traffic {
+    /// 创建一条「进行中」的流量记录。
+    pub fn new(id: u64, protocol: &str, method: &str, url: &str, host: &str, client: &str) -> Self {
+        Self {
+            id,
+            protocol: protocol.to_string(),
+            method: method.to_string(),
+            url: url.to_string(),
+            host: host.to_string(),
+            client: client.to_string(),
+            status: None,
+            req_headers: Vec::new(),
+            res_headers: Vec::new(),
+            start_time: now_ms(),
+            duration_ms: None,
+            rules: Vec::new(),
+            error: None,
+        }
+    }
+
+    /// 标记完成并计算耗时。
+    pub fn finish(&mut self) {
+        self.duration_ms = Some(now_ms().saturating_sub(self.start_time));
+    }
+}
+
+/// 当前 Unix 毫秒时间戳。
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+struct Inner {
+    order: VecDeque<u64>,
+    map: HashMap<u64, Traffic>,
+}
+
+/// 内存抓包存储：保留最近 `capacity` 条，并向订阅者广播更新事件。
+pub struct CaptureStore {
+    inner: Mutex<Inner>,
+    next_id: AtomicU64,
+    capacity: usize,
+    tx: broadcast::Sender<Traffic>,
+}
+
+impl CaptureStore {
+    /// 创建容量为 `capacity` 的存储。
+    pub fn new(capacity: usize) -> Self {
+        let (tx, _) = broadcast::channel(1024);
+        Self {
+            inner: Mutex::new(Inner {
+                order: VecDeque::with_capacity(capacity),
+                map: HashMap::with_capacity(capacity),
+            }),
+            next_id: AtomicU64::new(1),
+            capacity: capacity.max(1),
+            tx,
+        }
+    }
+
+    /// 分配下一个流量 id。
+    pub fn next_id(&self) -> u64 {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// 插入或更新一条记录（按 id），并广播事件。
+    pub fn upsert(&self, traffic: Traffic) {
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if !inner.map.contains_key(&traffic.id) {
+                inner.order.push_back(traffic.id);
+                while inner.order.len() > self.capacity {
+                    if let Some(old) = inner.order.pop_front() {
+                        inner.map.remove(&old);
+                    }
+                }
+            }
+            inner.map.insert(traffic.id, traffic.clone());
+        }
+        // 没有订阅者时返回 Err，忽略即可。
+        let _ = self.tx.send(traffic);
+    }
+
+    /// 返回最近的若干条记录（最新在前）。
+    pub fn list(&self, limit: usize) -> Vec<Traffic> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .order
+            .iter()
+            .rev()
+            .take(limit)
+            .filter_map(|id| inner.map.get(id).cloned())
+            .collect()
+    }
+
+    /// 按 id 获取一条记录。
+    pub fn get(&self, id: u64) -> Option<Traffic> {
+        self.inner.lock().unwrap().map.get(&id).cloned()
+    }
+
+    /// 当前记录条数。
+    pub fn len(&self) -> usize {
+        self.inner.lock().unwrap().order.len()
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 清空所有记录。
+    pub fn clear(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.order.clear();
+        inner.map.clear();
+    }
+
+    /// 订阅实时更新事件。
+    pub fn subscribe(&self) -> broadcast::Receiver<Traffic> {
+        self.tx.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capacity_is_enforced_and_newest_first() {
+        let store = CaptureStore::new(2);
+        for _ in 0..3 {
+            let id = store.next_id();
+            store.upsert(Traffic::new(id, "http", "GET", "http://x/", "x", "c"));
+        }
+        assert_eq!(store.len(), 2);
+        let list = store.list(10);
+        assert_eq!(list.len(), 2);
+        // 最新在前：id 3, 2
+        assert_eq!(list[0].id, 3);
+        assert_eq!(list[1].id, 2);
+        // 最旧（id 1）已被淘汰
+        assert!(store.get(1).is_none());
+    }
+
+    #[test]
+    fn upsert_updates_existing() {
+        let store = CaptureStore::new(8);
+        let id = store.next_id();
+        let mut t = Traffic::new(id, "http", "GET", "http://x/", "x", "c");
+        store.upsert(t.clone());
+        t.status = Some(200);
+        store.upsert(t);
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.get(id).unwrap().status, Some(200));
+    }
 }
