@@ -42,9 +42,17 @@ enum Command {
         no_ui: bool,
     },
     /// 停止代理服务。
-    Stop,
+    Stop {
+        /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
+        #[arg(long)]
+        data_dir: Option<String>,
+    },
     /// 查看代理服务状态。
-    Status,
+    Status {
+        /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
+        #[arg(long)]
+        data_dir: Option<String>,
+    },
     /// 管理根证书（CA）。
     Ca {
         /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
@@ -90,10 +98,62 @@ async fn main() -> anyhow::Result<()> {
                 ui_enabled: !no_ui,
                 ..Config::default()
             };
-            whistle_core::start(config).await?;
+
+            // 启动前写入 PID 文件，供 stop/status 子命令读取。
+            let dir = whistle_core::data_dir(&config);
+            std::fs::create_dir_all(&dir)?;
+            let pid_path = pid_file_path(&dir);
+            if let Err(err) =
+                write_pid_file(&pid_path, std::process::id(), config.port, config.ui_port)
+            {
+                tracing::warn!(error = %err, "写入 PID 文件失败");
+            }
+
+            let result = whistle_core::start(config).await;
+
+            // 退出后尽力清理 PID 文件，忽略错误。
+            let _ = std::fs::remove_file(&pid_path);
+
+            result?;
         }
-        Command::Stop => tracing::warn!("stop 尚未实现（需进程间通信，计划于后续里程碑）"),
-        Command::Status => tracing::warn!("status 尚未实现（需进程间通信，计划于后续里程碑）"),
+        Command::Stop { data_dir } => {
+            let config = Config {
+                data_dir,
+                ..Config::default()
+            };
+            let pid_path = pid_file_path(&whistle_core::data_dir(&config));
+            match read_pid_file(&pid_path)? {
+                None => println!("whistle-rs 未在运行"),
+                Some(info) => {
+                    stop_process(info.pid)?;
+                    let _ = std::fs::remove_file(&pid_path);
+                    println!("已停止 whistle-rs（pid {})", info.pid);
+                }
+            }
+        }
+        Command::Status { data_dir } => {
+            let config = Config {
+                data_dir,
+                ..Config::default()
+            };
+            let pid_path = pid_file_path(&whistle_core::data_dir(&config));
+            match read_pid_file(&pid_path)? {
+                None => println!("未运行"),
+                Some(info) => {
+                    if process_alive(info.pid) {
+                        println!(
+                            "运行中（pid {}，代理端口 {}，Web 端口 {}）",
+                            info.pid, info.port, info.ui_port
+                        );
+                    } else {
+                        println!(
+                            "未运行（PID 文件残留：pid {}，代理端口 {}，Web 端口 {}）",
+                            info.pid, info.port, info.ui_port
+                        );
+                    }
+                }
+            }
+        }
         Command::Ca { data_dir, action } => {
             let config = Config {
                 data_dir,
@@ -115,6 +175,101 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// PID 文件名（位于数据目录下）。
+const PID_FILE_NAME: &str = "whistle-rs.pid";
+
+/// PID 文件中记录的运行信息。
+struct PidInfo {
+    /// 进程 PID。
+    pid: u32,
+    /// 代理监听端口。
+    port: u16,
+    /// Web 管理界面端口。
+    ui_port: u16,
+}
+
+/// 返回数据目录下的 PID 文件路径。
+fn pid_file_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join(PID_FILE_NAME)
+}
+
+/// 写入 PID 文件（手写 JSON，避免引入 serde_json）。
+fn write_pid_file(
+    path: &std::path::Path,
+    pid: u32,
+    port: u16,
+    ui_port: u16,
+) -> std::io::Result<()> {
+    let json = format!(r#"{{"pid":{pid},"port":{port},"ui_port":{ui_port}}}"#);
+    std::fs::write(path, json)
+}
+
+/// 读取并解析 PID 文件；文件不存在或内容损坏时返回 `Ok(None)`。
+fn read_pid_file(path: &std::path::Path) -> anyhow::Result<Option<PidInfo>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(parse_pid_file(&text))
+}
+
+/// 从 JSON 文本中提取 pid/port/ui_port。任一字段缺失/非法则返回 `None`。
+fn parse_pid_file(text: &str) -> Option<PidInfo> {
+    let pid = json_number_field(text, "pid")?;
+    let port = json_number_field(text, "port")?;
+    let ui_port = json_number_field(text, "ui_port")?;
+    Some(PidInfo {
+        pid: u32::try_from(pid).ok()?,
+        port: u16::try_from(port).ok()?,
+        ui_port: u16::try_from(ui_port).ok()?,
+    })
+}
+
+/// 在简单 JSON 文本里查找 `"key":<number>` 并返回其整数值。
+fn json_number_field(text: &str, key: &str) -> Option<u64> {
+    let needle = format!("\"{key}\"");
+    let start = text.find(&needle)? + needle.len();
+    let rest = text[start..].trim_start();
+    let rest = rest.strip_prefix(':')?.trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// 终止指定进程。Unix 上发送 SIGTERM（`kill <pid>`）。
+fn stop_process(pid: u32) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let status = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("kill {pid} 失败（进程可能已退出）");
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        anyhow::bail!("当前平台暂不支持停止进程（pid {pid}）")
+    }
+}
+
+/// 判断进程是否仍在运行。Linux 上检查 `/proc/<pid>` 是否存在。
+fn process_alive(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 /// 按 verbose 级别初始化日志；`RUST_LOG` 优先生效。
