@@ -15,6 +15,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{debug, info, warn};
@@ -91,6 +92,12 @@ pub async fn serve_listener(
                 };
                 let ctx = ctx.clone();
                 tokio::spawn(async move {
+                    // 同端口区分 SOCKS5（首字节 0x05）与 HTTP 代理请求。
+                    let mut first = [0u8; 1];
+                    if matches!(stream.peek(&mut first).await, Ok(1) if first[0] == 0x05) {
+                        handle_socks5(stream, peer, ctx).await;
+                        return;
+                    }
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |req| handle(req, peer, ctx.clone()));
                     if let Err(e) = hyper::server::conn::http1::Builder::new()
@@ -190,7 +197,7 @@ fn handle_connect(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Respons
         // 中间人：升级后用动态证书与客户端建立 TLS，再逐请求转发。
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(upgraded) => serve_mitm(upgraded, host, port, peer, ctx).await,
+                Ok(upgraded) => serve_mitm(TokioIo::new(upgraded), host, port, peer, ctx).await,
                 Err(e) => debug!(%e, "CONNECT upgrade 失败"),
             }
         });
@@ -235,14 +242,125 @@ fn handle_connect(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Respons
     ok_200()
 }
 
-/// 在已升级的连接上做 TLS 中间人，并逐 HTTP 请求转发。
-async fn serve_mitm(
-    upgraded: hyper::upgrade::Upgraded,
-    host: String,
-    port: u16,
-    peer: SocketAddr,
-    ctx: Ctx,
-) {
+/// 处理本机 SOCKS5 入站连接（仅 no-auth + CONNECT）。
+///
+/// 握手后建立到目标的隧道：若为 TLS 且开启解密则做中间人（复用 [`serve_mitm`]），
+/// 否则盲隧道转发（明文 HTTP-over-SOCKS 暂只隧道、不抓取）。
+async fn handle_socks5(mut stream: TcpStream, peer: SocketAddr, ctx: Ctx) {
+    // 1) 方法协商：VER, NMETHODS, METHODS...
+    let mut head = [0u8; 2];
+    if stream.read_exact(&mut head).await.is_err() || head[0] != 0x05 {
+        return;
+    }
+    let mut methods = vec![0u8; head[1] as usize];
+    if stream.read_exact(&mut methods).await.is_err() {
+        return;
+    }
+    // 选择 no-auth(0x00)。
+    if stream.write_all(&[0x05, 0x00]).await.is_err() {
+        return;
+    }
+
+    // 2) 请求：VER, CMD, RSV, ATYP, ADDR, PORT。
+    let mut req = [0u8; 4];
+    if stream.read_exact(&mut req).await.is_err() || req[0] != 0x05 {
+        return;
+    }
+    let (cmd, atyp) = (req[1], req[3]);
+    let host = match atyp {
+        0x01 => {
+            let mut a = [0u8; 4];
+            if stream.read_exact(&mut a).await.is_err() {
+                return;
+            }
+            std::net::Ipv4Addr::from(a).to_string()
+        }
+        0x03 => {
+            let mut l = [0u8; 1];
+            if stream.read_exact(&mut l).await.is_err() {
+                return;
+            }
+            let mut d = vec![0u8; l[0] as usize];
+            if stream.read_exact(&mut d).await.is_err() {
+                return;
+            }
+            String::from_utf8_lossy(&d).into_owned()
+        }
+        0x04 => {
+            let mut a = [0u8; 16];
+            if stream.read_exact(&mut a).await.is_err() {
+                return;
+            }
+            std::net::Ipv6Addr::from(a).to_string()
+        }
+        _ => {
+            let _ = stream
+                .write_all(&[0x05, 0x08, 0, 0x01, 0, 0, 0, 0, 0, 0])
+                .await;
+            return;
+        }
+    };
+    let mut pbuf = [0u8; 2];
+    if stream.read_exact(&mut pbuf).await.is_err() {
+        return;
+    }
+    let port = u16::from_be_bytes(pbuf);
+
+    if cmd != 0x01 {
+        // 仅支持 CONNECT。
+        let _ = stream
+            .write_all(&[0x05, 0x07, 0, 0x01, 0, 0, 0, 0, 0, 0])
+            .await;
+        return;
+    }
+    // 成功应答（BND.ADDR/PORT 填 0）。
+    if stream
+        .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+        .await
+        .is_err()
+    {
+        return;
+    }
+
+    // 3) 探测首字节决定 MITM(0x16=TLS) 还是盲隧道。
+    let mut fb = [0u8; 1];
+    let is_tls = matches!(stream.peek(&mut fb).await, Ok(1) if fb[0] == 0x16);
+    if ctx.decrypt_https && is_tls {
+        serve_mitm(stream, host, port, peer, ctx).await;
+        return;
+    }
+
+    // 盲隧道。
+    let store = ctx.store.clone();
+    let id = store.next_id();
+    let mut traffic = Traffic::new(
+        id,
+        "tunnel",
+        "SOCKS5",
+        &format!("{host}:{port}"),
+        &host,
+        &peer.to_string(),
+    );
+    store.upsert(traffic.clone());
+    match TcpStream::connect((host.as_str(), port)).await {
+        Ok(mut upstream) => {
+            traffic.status = Some(200);
+            if let Err(e) = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await {
+                debug!(%e, "SOCKS5 隧道传输错误");
+            }
+        }
+        Err(e) => traffic.error = Some(format!("连接上游失败: {e}")),
+    }
+    traffic.finish();
+    store.upsert(traffic);
+}
+
+/// 在给定（已建立的）客户端连接上做 TLS 中间人，并逐 HTTP 请求转发。
+/// `io` 可以是 CONNECT 升级后的连接或 SOCKS5 隧道连接。
+async fn serve_mitm<S>(io: S, host: String, port: u16, peer: SocketAddr, ctx: Ctx)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let server_cfg = match ctx.ca.server_config_for(&host) {
         Ok(c) => c,
         Err(e) => {
@@ -251,7 +369,7 @@ async fn serve_mitm(
         }
     };
     let acceptor = TlsAcceptor::from(server_cfg);
-    let tls = match acceptor.accept(TokioIo::new(upgraded)).await {
+    let tls = match acceptor.accept(io).await {
         Ok(t) => t,
         Err(e) => {
             debug!(%host, %e, "对客户端 TLS 握手失败");
@@ -515,8 +633,6 @@ async fn connect_tls_via_proxy(
     target_port: u16,
     sni: &str,
 ) -> Result<SendRequest<ResBody>, String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
     let mut tcp = TcpStream::connect((proxy_host, proxy_port))
         .await
         .map_err(|e| format!("连接上游代理失败: {e}"))?;

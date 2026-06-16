@@ -44,7 +44,9 @@
 - [x] TCP：`--no-decrypt` 下 CONNECT 走盲隧道（字节级双向转发）。
 - [x] 上游 HTTP 代理 `proxy://`：明文 HTTP（absolute-form 转发）与 **HTTPS（先 CONNECT 打隧道再 TLS）**；
   端到端验证两级代理链路（含 MITM→上游代理→TLS 源站）通过。
-- 待补：`socks`/`pac`、本地 SOCKS5 入站。
+- [x] **本地 SOCKS5 入站**（同端口区分 SOCKS5/HTTP）：no-auth + CONNECT，TLS 走 MITM、其余盲隧道；
+  端到端验证 `curl --socks5-hostname` 的 https(MITM) 与 http(隧道) 均通过。
+- 待补：`socks://`（上游 SOCKS 代理）、`pac`。
 - **产出**：浏览器 WebSocket 可经代理正常工作；支持级联到上游 HTTP 代理。
 
 ## M6 · P1 协议横向铺开 — 🟡 进行中（主体已完成）
