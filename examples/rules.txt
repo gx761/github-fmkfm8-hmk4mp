@@ -6,7 +6,7 @@
 # 当前已实现的协议：
 #   转发/Mock : host  redirect  file  rawfile  statusCode
 #   头/Cookie : reqHeaders resHeaders reqCookies resCookies reqType resType ua referer attachment
-#               forwardedFor  headerReplace  delete
+#               forwardedFor  headerReplace  delete  reqCharset  resCharset
 #   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
 #   状态/方法/查询 : replaceStatus  method  pathReplace  locationHref
 #   时延      : reqDelay  resDelay

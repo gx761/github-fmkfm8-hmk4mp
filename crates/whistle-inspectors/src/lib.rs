@@ -102,6 +102,28 @@ pub fn apply_request_headers(headers: &mut HeaderMap, ops: &[Operation]) {
             headers.remove(name);
         }
     }
+    // reqCharset://utf-8 → 设置/替换 Content-Type 的 charset 参数。
+    if let Some(cs) = last_value(ops, "reqCharset") {
+        set_charset(headers, cs);
+    }
+}
+
+/// 设置/替换 Content-Type 的 charset 参数；无 Content-Type 时回落到 text/plain。
+fn set_charset(headers: &mut HeaderMap, charset: &str) {
+    let base = match headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
+        Some(ct) => ct
+            .split(';')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty() && !p.to_ascii_lowercase().starts_with("charset="))
+            .collect::<Vec<_>>()
+            .join("; "),
+        None => "text/plain".to_string(),
+    };
+    set_header(
+        headers,
+        CONTENT_TYPE.as_str(),
+        &format!("{base}; charset={charset}"),
+    );
 }
 
 /// `headerReplace://name=from|to`：若请求头 `name` 存在且其值包含 `from`，
@@ -129,6 +151,10 @@ pub fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Operation
     }
     if let Some(t) = last_value(ops, "resType") {
         set_header(&mut parts.headers, CONTENT_TYPE.as_str(), &mime_of(t));
+    }
+    // resCharset://utf-8 → 设置/替换 Content-Type 的 charset 参数。
+    if let Some(cs) = last_value(ops, "resCharset") {
+        set_charset(&mut parts.headers, cs);
     }
     // resCookies：每对追加一个 Set-Cookie。
     for v in all_values(ops, "resCookies") {
@@ -797,6 +823,23 @@ mod tests {
         let mut parts = hyper::Response::new(()).into_parts().0;
         apply_response(&mut parts, &o);
         assert_eq!(parts.headers[LOCATION], "https://new.example.com/x");
+    }
+
+    #[test]
+    fn charset_replaces_or_appends() {
+        let o = ops("example.com reqCharset://utf-8", "http", "example.com", "/");
+        // 已有 content-type：替换其中的 charset。
+        let mut h = HeaderMap::new();
+        h.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=gbk"),
+        );
+        apply_request_headers(&mut h, &o);
+        assert_eq!(h[CONTENT_TYPE], "text/html; charset=utf-8");
+        // 无 content-type：回落 text/plain。
+        let mut h2 = HeaderMap::new();
+        apply_request_headers(&mut h2, &o);
+        assert_eq!(h2[CONTENT_TYPE], "text/plain; charset=utf-8");
     }
 
     #[test]
