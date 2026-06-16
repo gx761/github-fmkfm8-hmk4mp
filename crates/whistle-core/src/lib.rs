@@ -11,12 +11,13 @@ pub mod config;
 pub mod proxy;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub use config::Config;
 pub use whistle_capture::CaptureStore;
 pub use whistle_rules::RuleSet;
 pub use whistle_tls::CertAuthority;
+pub use whistle_web::WebState;
 
 /// 内核错误类型。
 #[derive(Debug, thiserror::Error)]
@@ -44,16 +45,16 @@ pub fn data_dir(config: &Config) -> PathBuf {
         .unwrap_or_else(whistle_tls::default_data_dir)
 }
 
-/// 从配置加载规则集（无规则文件则返回空集）。
-pub fn load_rules(config: &Config) -> Result<Arc<RuleSet>> {
+/// 从配置加载规则集与其文本（无规则文件则返回空集与空串）。
+pub fn load_rules(config: &Config) -> Result<(RuleSet, String)> {
     match &config.rules_file {
         Some(path) => {
             let text = std::fs::read_to_string(path)?;
             let rules = RuleSet::parse(&text).map_err(|e| Error::Rules(e.to_string()))?;
             tracing::info!(path = %path, count = rules.len(), "已加载规则");
-            Ok(Arc::new(rules))
+            Ok((rules, text))
         }
-        None => Ok(Arc::new(RuleSet::default())),
+        None => Ok((RuleSet::default(), String::new())),
     }
 }
 
@@ -64,11 +65,34 @@ pub fn load_ca(config: &Config) -> Result<Arc<CertAuthority>> {
     Ok(Arc::new(ca))
 }
 
-/// 启动代理服务并阻塞运行，直到收到 Ctrl-C。
+/// 启动代理服务（并按需启动 Web 管理界面），阻塞运行直到收到 Ctrl-C。
 pub async fn start(config: Config) -> Result<()> {
     let store = Arc::new(CaptureStore::new(config.capture_capacity));
-    let rules = load_rules(&config)?;
+    let (rule_set, rules_text) = load_rules(&config)?;
+    let rules = Arc::new(RwLock::new(rule_set));
     let ca = load_ca(&config)?;
+
+    // Web 管理界面（共享 store 与 rules，支持热更新）。
+    if config.ui_enabled {
+        let state = WebState {
+            store: store.clone(),
+            rules: rules.clone(),
+            rules_text: Arc::new(RwLock::new(rules_text)),
+        };
+        let ui_addr = config.ui_addr();
+        match ui_addr.parse::<std::net::SocketAddr>() {
+            Ok(addr) => {
+                tracing::info!(%ui_addr, "管理界面 → http://{ui_addr}/");
+                tokio::spawn(async move {
+                    if let Err(e) = whistle_web::serve(addr, state).await {
+                        tracing::error!(%e, "管理界面退出");
+                    }
+                });
+            }
+            Err(e) => tracing::warn!(%ui_addr, %e, "管理界面地址非法，已跳过"),
+        }
+    }
+
     proxy::serve(config, store, rules, ca).await
 }
 

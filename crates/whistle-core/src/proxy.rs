@@ -6,7 +6,7 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -30,7 +30,7 @@ use crate::Config;
 #[derive(Clone)]
 struct Ctx {
     store: Arc<CaptureStore>,
-    rules: Arc<RuleSet>,
+    rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
 }
@@ -39,14 +39,13 @@ struct Ctx {
 pub async fn serve(
     config: Config,
     store: Arc<CaptureStore>,
-    rules: Arc<RuleSet>,
+    rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
 ) -> crate::Result<()> {
     let addr = config.bind_addr();
     let listener = TcpListener::bind(&addr).await?;
     info!(
         %addr,
-        rules = rules.len(),
         decrypt_https = config.decrypt_https,
         "whistle-rs 代理已启动"
     );
@@ -278,7 +277,7 @@ fn eval_rules(
     traffic: &mut Traffic,
 ) -> Vec<Operation> {
     let input = MatchInput::new(scheme, host, path);
-    let ops = ctx.rules.match_request(&input);
+    let ops = ctx.rules.read().unwrap().match_request(&input);
     traffic.rules = ops.iter().map(|o| o.raw.clone()).collect();
     ctx.store.upsert(traffic.clone());
     ops

@@ -34,6 +34,12 @@ enum Command {
         /// 不解密 HTTPS（CONNECT 退化为盲隧道）。
         #[arg(long)]
         no_decrypt: bool,
+        /// Web 管理界面端口。
+        #[arg(long, default_value_t = whistle_core::config::DEFAULT_UI_PORT)]
+        ui_port: u16,
+        /// 不启动 Web 管理界面。
+        #[arg(long)]
+        no_ui: bool,
     },
     /// 停止代理服务。
     Stop,
@@ -72,12 +78,16 @@ async fn main() -> anyhow::Result<()> {
             rules,
             data_dir,
             no_decrypt,
+            ui_port,
+            no_ui,
         } => {
             let config = Config {
                 port,
                 rules_file: rules,
                 data_dir,
                 decrypt_https: !no_decrypt,
+                ui_port,
+                ui_enabled: !no_ui,
                 ..Config::default()
             };
             whistle_core::start(config).await?;

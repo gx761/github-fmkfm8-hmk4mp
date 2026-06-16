@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>whistle-rs</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color: #1f2328; background: #f6f8fa; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #24292f; color: #fff; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .meta { font-size: 12px; opacity: .8; }
+  header .spacer { flex: 1; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; cursor: pointer; }
+  button:hover { background: #f3f4f6; }
+  .layout { display: flex; height: calc(100vh - 41px); }
+  .left { flex: 1; overflow: auto; }
+  .right { width: 0; transition: width .15s; overflow: auto; background: #fff; border-left: 1px solid #d0d7de; }
+  .right.open { width: 44%; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eaeef2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+  th { position: sticky; top: 0; background: #f6f8fa; font-weight: 600; z-index: 1; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: #f3f4f6; }
+  tr.sel { background: #ddf4ff !important; }
+  .pill { padding: 0 6px; border-radius: 10px; font-size: 11px; color: #fff; }
+  .s2 { background: #1a7f37; } .s3 { background: #9a6700; } .s4 { background: #cf222e; } .s5 { background: #cf222e; } .sx { background: #6e7781; }
+  .proto { font-size: 11px; color: #57606a; }
+  .rules { color: #8250df; font-size: 11px; }
+  .panel { padding: 12px; }
+  .panel h3 { margin: 12px 0 6px; font-size: 13px; }
+  pre { background: #f6f8fa; padding: 8px; border-radius: 6px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; }
+  .tabs { display: flex; gap: 6px; padding: 8px 12px 0; }
+  .tabs button.active { background: #ddf4ff; border-color: #54aeff; }
+  .pane { display: none; } .pane.active { display: block; }
+  textarea { width: 100%; height: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; }
+  .ok { color: #1a7f37; } .err { color: #cf222e; }
+  .empty { padding: 24px; color: #6e7781; }
+</style>
+</head>
+<body>
+<header>
+  <h1>whistle-rs</h1>
+  <span class="meta" id="meta">连接中…</span>
+  <span class="spacer"></span>
+  <button id="btn-rules">规则</button>
+  <button id="btn-clear">清空</button>
+  <span class="meta" id="wsstate">●</span>
+</header>
+<div class="layout">
+  <div class="left">
+    <table>
+      <thead><tr><th>#</th><th>方法</th><th>状态</th><th>协议</th><th>Host</th><th>URL</th><th>耗时</th><th>规则</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">暂无流量。把浏览器/系统 HTTP 代理指向本机代理端口后即可抓包。</div>
+  </div>
+  <div class="right" id="right">
+    <div class="tabs">
+      <button data-pane="detail" class="active">详情</button>
+      <button data-pane="rules">规则</button>
+      <button class="spacer" style="border:none;background:none;cursor:default;flex:1"></button>
+      <button id="btn-close">×</button>
+    </div>
+    <div class="pane active" id="pane-detail"><div class="panel" id="detail"></div></div>
+    <div class="pane" id="pane-rules">
+      <div class="panel">
+        <p>编辑规则（保存即生效，无需重启）：</p>
+        <textarea id="rules-text" spellcheck="false"></textarea>
+        <div style="margin-top:8px"><button id="btn-save">保存规则</button> <span id="rules-msg"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const rowsEl = $('#rows'), emptyEl = $('#empty');
+const byId = new Map();
+let selected = null;
+
+function statusClass(s){ if(!s) return 'sx'; return 's'+String(s)[0]; }
+function esc(x){ return (x==null?'':String(x)).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function upsert(t){
+  byId.set(t.id, t);
+  let tr = document.getElementById('t'+t.id);
+  if(!tr){
+    tr = document.createElement('tr');
+    tr.id = 't'+t.id; tr.className = 'row';
+    tr.onclick = () => showDetail(t.id);
+    rowsEl.prepend(tr);
+  }
+  const dur = t.duration_ms==null ? '…' : t.duration_ms+'ms';
+  const st = t.status ? `<span class="pill ${statusClass(t.status)}">${t.status}</span>` : (t.error?`<span class="pill s5">ERR</span>`:'…');
+  tr.innerHTML = `<td>${t.id}</td><td>${esc(t.method)}</td><td>${st}</td>`+
+    `<td class="proto">${esc(t.protocol)}</td><td>${esc(t.host)}</td><td title="${esc(t.url)}">${esc(t.url)}</td>`+
+    `<td>${dur}</td><td class="rules">${esc((t.rules||[]).join(' '))}</td>`;
+  if(selected===t.id){ tr.classList.add('sel'); refreshDetail(t); }
+  emptyEl.style.display = byId.size ? 'none' : '';
+}
+
+function headersTable(hs){
+  if(!hs||!hs.length) return '<pre>(无)</pre>';
+  return '<pre>'+hs.map(h=>esc(h.name)+': '+esc(h.value)).join('\n')+'</pre>';
+}
+function refreshDetail(t){
+  $('#detail').innerHTML =
+    `<h3>${esc(t.method)} ${esc(t.url)}</h3>`+
+    `<div>协议 ${esc(t.protocol)} · 客户端 ${esc(t.client)} · 状态 ${t.status??'-'} · 耗时 ${t.duration_ms??'-'}ms</div>`+
+    (t.error?`<div class="err">错误：${esc(t.error)}</div>`:'')+
+    (t.rules&&t.rules.length?`<h3>命中规则</h3><pre>${esc(t.rules.join('\n'))}</pre>`:'')+
+    `<h3>请求头</h3>${headersTable(t.req_headers)}`+
+    `<h3>响应头</h3>${headersTable(t.res_headers)}`;
+}
+function showDetail(id){
+  selected = id;
+  document.querySelectorAll('tr.row').forEach(r=>r.classList.remove('sel'));
+  document.getElementById('t'+id)?.classList.add('sel');
+  $('#right').classList.add('open');
+  switchPane('detail');
+  refreshDetail(byId.get(id));
+}
+function switchPane(name){
+  document.querySelectorAll('.tabs button[data-pane]').forEach(b=>b.classList.toggle('active', b.dataset.pane===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  $('#pane-'+name).classList.add('active');
+}
+
+document.querySelectorAll('.tabs button[data-pane]').forEach(b=> b.onclick=()=>switchPane(b.dataset.pane));
+$('#btn-close').onclick = () => { $('#right').classList.remove('open'); selected=null; document.querySelectorAll('tr.row').forEach(r=>r.classList.remove('sel')); };
+$('#btn-rules').onclick = () => { $('#right').classList.add('open'); switchPane('rules'); };
+$('#btn-clear').onclick = async () => { await fetch('api/traffic',{method:'DELETE'}); rowsEl.innerHTML=''; byId.clear(); emptyEl.style.display=''; };
+$('#btn-save').onclick = async () => {
+  const text = $('#rules-text').value;
+  const r = await fetch('api/rules',{method:'PUT',headers:{'content-type':'text/plain'},body:text});
+  const j = await r.json();
+  $('#rules-msg').className = j.ok?'ok':'err';
+  $('#rules-msg').textContent = j.ok?`已保存，共 ${j.count} 条规则`:`错误：${j.error}`;
+};
+
+async function loadInfo(){ try{ const j=await (await fetch('api/info')).json();
+  $('#meta').textContent = `v${j.version} · 规则 ${j.rules} 条 · 抓包 ${j.capture} 条`; }catch(e){} }
+async function loadRules(){ try{ const j=await (await fetch('api/rules')).json(); $('#rules-text').value=j.text||''; }catch(e){} }
+
+function connectWS(){
+  const proto = location.protocol==='https:'?'wss':'ws';
+  const ws = new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/,'')}/ws`);
+  ws.onopen = ()=>{ $('#wsstate').style.color='#3fb950'; };
+  ws.onclose = ()=>{ $('#wsstate').style.color='#cf222e'; setTimeout(connectWS, 1500); };
+  ws.onmessage = ev => { try{ const t=JSON.parse(ev.data); upsert(t); loadInfoDebounced(); }catch(e){} };
+}
+let infoTimer=null; function loadInfoDebounced(){ clearTimeout(infoTimer); infoTimer=setTimeout(loadInfo, 400); }
+
+(async function(){
+  await loadRules(); await loadInfo();
+  try { const list = await (await fetch('api/traffic?limit=500')).json(); list.reverse().forEach(upsert); } catch(e){}
+  connectWS();
+})();
+</script>
+</body>
+</html>

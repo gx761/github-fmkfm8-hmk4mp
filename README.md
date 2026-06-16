@@ -10,8 +10,9 @@
 # 构建
 cargo build --workspace
 
-# 启动代理（默认端口 8899，开启 HTTPS 解密）
+# 启动代理（默认端口 8899，开启 HTTPS 解密）+ 管理界面（默认 8900）
 cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
+#   打开 http://127.0.0.1:8900/ 查看实时抓包、编辑规则（保存即生效）
 
 # 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
 # 抓 HTTPS：先导出并信任根证书
@@ -25,7 +26,8 @@ cargo test --workspace
 ```
 
 已实现能力：HTTP/HTTPS 抓包与转发、规则引擎（host/redirect/file/statusCode/
-reqHeaders/resHeaders/reqType/resType 等）、HTTPS 中间人解密（动态签发证书）。
+reqHeaders/resHeaders/reqType/resType 等）、HTTPS 中间人解密（动态签发证书）、
+Web 管理界面（实时抓包列表 + 请求详情 + 在线规则编辑热生效）。
 
 ## 工程结构
 

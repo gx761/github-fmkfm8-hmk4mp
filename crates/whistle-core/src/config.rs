@@ -10,6 +10,9 @@ pub const DEFAULT_PROXY_PORT: u16 = 8899;
 /// 抓包存储默认容量（最近 N 条）。
 pub const DEFAULT_CAPTURE_CAPACITY: usize = 5000;
 
+/// Web 管理界面默认端口。
+pub const DEFAULT_UI_PORT: u16 = 8900;
+
 /// 全局运行配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -25,6 +28,10 @@ pub struct Config {
     pub data_dir: Option<String>,
     /// 是否对 HTTPS（CONNECT）做中间人解密；false 时退化为盲隧道。
     pub decrypt_https: bool,
+    /// Web 管理界面端口。
+    pub ui_port: u16,
+    /// 是否启用 Web 管理界面。
+    pub ui_enabled: bool,
 }
 
 impl Default for Config {
@@ -36,7 +43,16 @@ impl Default for Config {
             rules_file: None,
             data_dir: None,
             decrypt_https: true,
+            ui_port: DEFAULT_UI_PORT,
+            ui_enabled: true,
         }
+    }
+}
+
+impl Config {
+    /// Web 管理界面监听地址。
+    pub fn ui_addr(&self) -> String {
+        format!("{}:{}", self.host, self.ui_port)
     }
 }
 

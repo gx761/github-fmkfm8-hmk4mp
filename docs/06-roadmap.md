@@ -28,11 +28,13 @@
 - [x] 端到端验证：经代理访问本地 HTTPS origin，解密成功且 statusCode/resHeaders 规则生效。
 - **产出**：`w2r ca export` 安装根证书后即可抓取/改写 HTTPS 流量。
 
-## M4 · Web UI（最小可用）
-- `whistle-web`：axum REST（规则 CRUD、抓包查询、设置）+ WebSocket 实时推送。
-- 内嵌精简前端（或复用 whistle 前端资源）：抓包列表 + 单请求详情 + 规则编辑。
-- 规则热更新（编辑即生效）。
-- **产出**：浏览器打开管理界面即可看流量、改规则。
+## M4 · Web UI（最小可用）— ✅ 已完成
+- [x] `whistle-web`：axum REST（`/api/info`、`/api/traffic` 列表/详情/清空、`/api/rules` 读写）
+  + WebSocket `/ws` 实时推送抓包事件。
+- [x] 内嵌精简前端（`ui/index.html`）：抓包列表 + 单请求详情（请求/响应头、命中规则）+ 规则编辑器。
+- [x] 规则热更新：编辑保存即生效（proxy 与 web 共享 `Arc<RwLock<RuleSet>>`），端到端验证通过。
+- [x] CLI：`--ui-port`（默认 8900）/`--no-ui`。
+- **产出**：浏览器打开 `http://127.0.0.1:8900/` 即可看流量、改规则。
 
 ## M5 · WebSocket / TCP / 上游代理
 - WS upgrade 与帧级抓取；TCP 隧道字节级抓取。
