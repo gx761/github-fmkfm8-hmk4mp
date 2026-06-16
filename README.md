@@ -10,14 +10,22 @@
 # 构建
 cargo build --workspace
 
-# 查看 CLI（功能逐步在后续里程碑落地）
-cargo run --bin w2r -- --help
+# 启动代理（默认端口 8899，开启 HTTPS 解密）
+cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
+
+# 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
+# 抓 HTTPS：先导出并信任根证书
+cargo run --bin w2r -- ca export whistle-rs-ca.pem
+#   将 whistle-rs-ca.pem 导入系统/浏览器的“受信任根证书”，再访问 https 站点。
 
 # 检查（与 CI 一致）
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+已实现能力：HTTP/HTTPS 抓包与转发、规则引擎（host/redirect/file/statusCode/
+reqHeaders/resHeaders/reqType/resType 等）、HTTPS 中间人解密（动态签发证书）。
 
 ## 工程结构
 

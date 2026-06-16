@@ -3,19 +3,20 @@
 //! 对应 whistle 的 `lib/index.js`、`init.js`、`handlers/`、`tunnel.js` 等。
 //! 负责装配各子系统并驱动请求生命周期。设计见仓库 `docs/02-architecture.md`。
 //!
-//! M1：HTTP 转发代理 + 抓包；CONNECT 盲隧道。
-//! M2：规则引擎（DSL 匹配）+ P0 协议（host/redirect/file/statusCode/
-//! reqHeaders/resHeaders/reqType/resType）。
+//! M1：HTTP 转发代理 + 抓包；M2：规则引擎 + P0 协议；
+//! M3：HTTPS 中间人解密（动态签发证书）。
 
 pub mod apply;
 pub mod config;
 pub mod proxy;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use config::Config;
 pub use whistle_capture::CaptureStore;
 pub use whistle_rules::RuleSet;
+pub use whistle_tls::CertAuthority;
 
 /// 内核错误类型。
 #[derive(Debug, thiserror::Error)]
@@ -26,10 +27,22 @@ pub enum Error {
     /// 规则解析错误。
     #[error("规则解析失败: {0}")]
     Rules(String),
+    /// TLS / 证书错误。
+    #[error("TLS 错误: {0}")]
+    Tls(String),
 }
 
 /// 内核操作结果类型。
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// 解析数据目录。
+pub fn data_dir(config: &Config) -> PathBuf {
+    config
+        .data_dir
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(whistle_tls::default_data_dir)
+}
 
 /// 从配置加载规则集（无规则文件则返回空集）。
 pub fn load_rules(config: &Config) -> Result<Arc<RuleSet>> {
@@ -44,11 +57,19 @@ pub fn load_rules(config: &Config) -> Result<Arc<RuleSet>> {
     }
 }
 
+/// 加载或生成根 CA。
+pub fn load_ca(config: &Config) -> Result<Arc<CertAuthority>> {
+    let dir = data_dir(config);
+    let ca = CertAuthority::load_or_generate(&dir).map_err(|e| Error::Tls(e.to_string()))?;
+    Ok(Arc::new(ca))
+}
+
 /// 启动代理服务并阻塞运行，直到收到 Ctrl-C。
 pub async fn start(config: Config) -> Result<()> {
     let store = Arc::new(CaptureStore::new(config.capture_capacity));
     let rules = load_rules(&config)?;
-    proxy::serve(config, store, rules).await
+    let ca = load_ca(&config)?;
+    proxy::serve(config, store, rules, ca).await
 }
 
 #[cfg(test)]

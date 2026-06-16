@@ -20,10 +20,13 @@
 - 待补：`xhost`/`xfile`/`tpl`、`reqCookies`/`resCookies`、`ignore`/`disable`/`enable` 等（后续补齐）。
 - **产出**：可用文本规则（`--rules`）改写/Mock 真实请求，示例见 `examples/rules.txt`。
 
-## M3 · HTTPS MITM
-- `whistle-tls`：首启生成根 CA；按 SNI 动态签发并缓存叶子证书；CA 导出与安装引导（`w2r ca`）。
-- CONNECT 隧道 + rustls 双向 TLS，对 HTTPS 流量解密、应用规则、再加密转发。
-- **产出**：安装根证书后可抓取/改写 HTTPS 流量。
+## M3 · HTTPS MITM — ✅ 已完成
+- [x] `whistle-tls`：首启生成根 CA 并持久化（重启复用）；按 host 动态签发并缓存叶子证书；
+  `w2r ca export` 导出根证书、`w2r ca path` 查看路径。
+- [x] CONNECT + rustls 双向 TLS：对客户端用动态证书、对上游用 NoVerify 客户端，
+  解密后逐请求应用规则、再加密转发；`--no-decrypt` 可退化为盲隧道。
+- [x] 端到端验证：经代理访问本地 HTTPS origin，解密成功且 statusCode/resHeaders 规则生效。
+- **产出**：`w2r ca export` 安装根证书后即可抓取/改写 HTTPS 流量。
 
 ## M4 · Web UI（最小可用）
 - `whistle-web`：axum REST（规则 CRUD、抓包查询、设置）+ WebSocket 实时推送。

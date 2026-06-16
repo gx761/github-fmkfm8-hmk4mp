@@ -8,7 +8,10 @@ description = "whistle-rs 代理内核：监听、连接、转发、隧道、MIT
 [dependencies]
 whistle-capture.workspace = true
 whistle-rules.workspace = true
+whistle-tls.workspace = true
 tokio.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true

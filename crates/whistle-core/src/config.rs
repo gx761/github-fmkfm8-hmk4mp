@@ -21,6 +21,10 @@ pub struct Config {
     pub capture_capacity: usize,
     /// 规则文件路径（可选）。
     pub rules_file: Option<String>,
+    /// 数据目录（CA、配置等）；None 时用 `~/.whistle-rs`。
+    pub data_dir: Option<String>,
+    /// 是否对 HTTPS（CONNECT）做中间人解密；false 时退化为盲隧道。
+    pub decrypt_https: bool,
 }
 
 impl Default for Config {
@@ -30,6 +34,8 @@ impl Default for Config {
             host: "127.0.0.1".to_string(),
             capture_capacity: DEFAULT_CAPTURE_CAPACITY,
             rules_file: None,
+            data_dir: None,
+            decrypt_https: true,
         }
     }
 }

@@ -28,6 +28,12 @@ enum Command {
         /// 规则文件路径（whistle 规则语法）。
         #[arg(short, long)]
         rules: Option<String>,
+        /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
+        #[arg(long)]
+        data_dir: Option<String>,
+        /// 不解密 HTTPS（CONNECT 退化为盲隧道）。
+        #[arg(long)]
+        no_decrypt: bool,
     },
     /// 停止代理服务。
     Stop,
@@ -35,6 +41,9 @@ enum Command {
     Status,
     /// 管理根证书（CA）。
     Ca {
+        /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
+        #[arg(long, global = true)]
+        data_dir: Option<String>,
         #[command(subcommand)]
         action: CaAction,
     },
@@ -42,12 +51,14 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum CaAction {
-    /// 导出根证书到文件。
+    /// 导出根证书到文件（不存在则先生成）。
     Export {
         /// 输出路径。
         #[arg(default_value = "whistle-rs-ca.pem")]
         path: String,
     },
+    /// 打印根证书数据目录与路径。
+    Path,
 }
 
 #[tokio::main]
@@ -56,21 +67,42 @@ async fn main() -> anyhow::Result<()> {
     init_tracing(cli.verbose);
 
     match cli.command {
-        Command::Start { port, rules } => {
+        Command::Start {
+            port,
+            rules,
+            data_dir,
+            no_decrypt,
+        } => {
             let config = Config {
                 port,
                 rules_file: rules,
+                data_dir,
+                decrypt_https: !no_decrypt,
                 ..Config::default()
             };
             whistle_core::start(config).await?;
         }
         Command::Stop => tracing::warn!("stop 尚未实现（需进程间通信，计划于后续里程碑）"),
         Command::Status => tracing::warn!("status 尚未实现（需进程间通信，计划于后续里程碑）"),
-        Command::Ca { action } => match action {
-            CaAction::Export { path } => {
-                tracing::warn!(%path, "ca export 尚未实现（计划于 M3）")
+        Command::Ca { data_dir, action } => {
+            let config = Config {
+                data_dir,
+                ..Config::default()
+            };
+            let ca = whistle_core::load_ca(&config)?;
+            match action {
+                CaAction::Export { path } => {
+                    std::fs::write(&path, ca.ca_pem())?;
+                    println!("已导出根证书到 {path}");
+                    println!("在系统/浏览器中信任它后，即可解密 HTTPS 流量。");
+                }
+                CaAction::Path => {
+                    let dir = whistle_core::data_dir(&config);
+                    println!("数据目录: {}", dir.display());
+                    println!("CA 证书:  {}", dir.join("ca-cert.pem").display());
+                }
             }
-        },
+        }
     }
     Ok(())
 }
