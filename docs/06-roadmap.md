@@ -62,6 +62,8 @@
 - [x] 抽出独立的 `whistle-inspectors` crate（兑现 docs/03 的模块拆分计划）。
 - [x] 抓包请求/响应正文与 WebSocket 帧级消息记录，Web UI 展示。
 - [x] `w2r stop`/`status`（PID 文件）、`w2r start --config <file.toml>`（TOML 配置）。
+- [x] Composer：Web UI 构造请求并经由本机代理回放（自动套用规则与抓包）。
+- [x] `reqCharset`/`resCharset` 协议。
 - [x] 端到端集成测试（真实 TCP 上的代理转发/mock/body 改写）。
 
 ## M7 · 插件体系
@@ -71,7 +73,7 @@
 ## M8 · HTTP/2 与 P2 协议、打磨
 - HTTP/2 MITM（多路复用 + ALPN）。
 - P2 协议：`reqWrite*`/`resWrite*`/`*Merge`/`responseFor`/`cipher`/`sniCallback`/`tunnel`/`trailers`/`cache`/`log` 等。
-- Composer（请求重放/构造）。
+- [x] Composer（请求重放/构造）—— 已于里程碑外完成。
 - 性能基准（`criterion`）、内存/吞吐与 Node 版对比报告，多平台发布二进制。
 - **产出**：功能与性能对齐，进入可发布状态。
 
