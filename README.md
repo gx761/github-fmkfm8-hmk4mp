@@ -2,7 +2,7 @@
 
 > 用 Rust 重构 [whistle](https://github.com/avwo/whistle)（`w2`）—— 一个跨平台的 HTTP / HTTPS / HTTP2 / WebSocket / TCP 抓包调试代理工具。
 
-**当前阶段：🚧 M0 工程脚手架已完成 —— Cargo workspace + `w2r` CLI 骨架 + CI 就绪，代理内核功能从 M1 起逐步实现。**
+**当前阶段：✅ 可用的 v0.1 —— HTTP/HTTPS 抓包代理（含中间人解密）、约 30 个规则协议、WebSocket、级联上游代理、Web 管理界面均已实现并通过端到端测试。**（里程碑进度见 [docs/06-roadmap.md](docs/06-roadmap.md)）
 
 ## 快速开始
 
@@ -25,24 +25,40 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-已实现能力：HTTP/HTTPS 抓包与转发、规则引擎（host/redirect/file/statusCode/
-reqHeaders/resHeaders/reqType/resType 等）、HTTPS 中间人解密（动态签发证书）、
-Web 管理界面（实时抓包列表 + 请求详情 + 在线规则编辑热生效）。
+## 已实现能力
+
+- **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密（动态签发证书，`w2r ca export` 安装根证书后即可）；CONNECT 盲隧道（`--no-decrypt`）。
+- **WebSocket**：`ws://` 与 `wss://` 升级转发（101 后双向中继）。
+- **级联代理**：`proxy://` 转发到上游 HTTP 代理。
+- **Web 管理界面**：实时抓包列表 + 请求详情（头/命中规则）+ 在线规则编辑（保存即热生效）。
+- **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 30 个协议：
+
+  | 类别 | 协议 |
+  | --- | --- |
+  | 转发 / Mock | `host` `redirect` `file` `rawfile` `statusCode` `proxy` |
+  | 头 / Cookie | `reqHeaders` `resHeaders` `reqCookies` `resCookies` `reqType` `resType` `ua` `referer` `attachment` `auth` `reqCors` `resCors` |
+  | Body 改写 | `reqBody` `resBody` `reqReplace` `resReplace` `*Prepend` `*Append` `html*`/`js*`/`css*` |
+  | 状态 / 方法 / 查询 | `replaceStatus` `method` `urlParams` |
+  | 时延 | `reqDelay` `resDelay` |
+
+- **测试**：33 个单元/集成测试（规则匹配、inspectors、抓包存储、TLS 签发、端到端代理）。
+
+> 尚未实现（详见路线图）：WS 帧级抓取、`socks`/`pac`/HTTPS 经上游代理、HTTP/2 MITM、插件体系、Composer、P2 协议。
 
 ## 工程结构
 
 ```
 Cargo.toml                 # workspace
 crates/
-├── whistle-cli/           # `w2r` 命令行入口（二进制）
-├── whistle-core/          # 代理内核：监听/连接/转发/MITM 调度
-├── whistle-rules/         # 规则 DSL：解析/匹配/求值
-├── whistle-inspectors/    # 各规则协议的请求/响应改写
-├── whistle-tls/           # CA 生成与动态证书签发（HTTPS MITM）
-├── whistle-proto/         # HTTP/1.1·H2·WS·SOCKS 协议处理
-├── whistle-capture/       # 抓包数据模型/存储/事件流
-├── whistle-plugin/        # 插件协议与调度
-└── whistle-web/           # axum 管理面 API + UI + WS 推送
+├── whistle-cli/           # `w2r` 命令行入口（二进制）✅
+├── whistle-core/          # 代理内核：监听/转发/MITM/WS/规则应用(apply) ✅
+├── whistle-rules/         # 规则 DSL：解析/匹配/求值 ✅
+├── whistle-tls/           # CA 生成与动态证书签发（HTTPS MITM）✅
+├── whistle-capture/       # 抓包数据模型/存储/事件流 ✅
+├── whistle-web/           # axum 管理面 API + UI + WS 推送 ✅
+├── whistle-inspectors/    # （占位）inspector 当前内置于 whistle-core::apply，待抽出
+├── whistle-proto/         # （占位）HTTP/2·SOCKS 等协议处理
+└── whistle-plugin/        # （占位）插件协议与调度
 docs/                      # 设计文档（见下）
 ```
 

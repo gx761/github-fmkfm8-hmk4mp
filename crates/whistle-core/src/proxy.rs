@@ -49,11 +49,22 @@ pub async fn serve(
         decrypt_https = config.decrypt_https,
         "whistle-rs 代理已启动"
     );
+    serve_listener(listener, store, rules, ca, config.decrypt_https).await
+}
+
+/// 在给定监听器上处理连接（便于测试注入端口）。直到收到 Ctrl-C 返回。
+pub async fn serve_listener(
+    listener: TcpListener,
+    store: Arc<CaptureStore>,
+    rules: Arc<RwLock<RuleSet>>,
+    ca: Arc<CertAuthority>,
+    decrypt_https: bool,
+) -> crate::Result<()> {
     let ctx = Ctx {
         store,
         rules,
         ca,
-        decrypt_https: config.decrypt_https,
+        decrypt_https,
     };
 
     loop {
