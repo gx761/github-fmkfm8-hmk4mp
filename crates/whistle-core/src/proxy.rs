@@ -1,15 +1,14 @@
-//! 代理服务：接入、转发、CONNECT 隧道。
+//! 代理服务：接入、规则求值、转发、CONNECT 隧道。
 //!
-//! M1 范围：
-//! - 明文 HTTP：解析代理请求（absolute-form），转发到上游并回写响应，记录抓包；
+//! - 明文 HTTP：解析代理请求（absolute-form），按规则决定 mock 或转发上游
+//!   （可被 `host://` 改写目标），应用请求/响应改写并记录抓包；
 //! - CONNECT：建立盲隧道（TCP 双向转发），HTTPS 解密留待 M3。
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use bytes::Bytes;
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
@@ -18,19 +17,28 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, info, warn};
 
 use whistle_capture::{CaptureStore, Header, Traffic};
+use whistle_rules::{MatchInput, RuleSet};
 
+use crate::apply::{self, RequestAction, ResBody};
 use crate::Config;
 
-/// 统一的错误盒子，便于桥接不同 body 的错误类型。
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-/// 出站响应 body 类型。
-type ResBody = BoxBody<Bytes, BoxError>;
+/// 共享的请求上下文（跨连接克隆 Arc）。
+#[derive(Clone)]
+struct Ctx {
+    store: Arc<CaptureStore>,
+    rules: Arc<RuleSet>,
+}
 
 /// 监听代理端口并处理连接，直到收到 Ctrl-C。
-pub async fn serve(config: Config, store: Arc<CaptureStore>) -> crate::Result<()> {
+pub async fn serve(
+    config: Config,
+    store: Arc<CaptureStore>,
+    rules: Arc<RuleSet>,
+) -> crate::Result<()> {
     let addr = config.bind_addr();
     let listener = TcpListener::bind(&addr).await?;
-    info!(%addr, "whistle-rs 代理已启动（HTTP 抓包可用，HTTPS 走盲隧道）");
+    info!(%addr, rules = rules.len(), "whistle-rs 代理已启动（HTTP 抓包+规则可用，HTTPS 走盲隧道）");
+    let ctx = Ctx { store, rules };
 
     loop {
         tokio::select! {
@@ -43,10 +51,10 @@ pub async fn serve(config: Config, store: Arc<CaptureStore>) -> crate::Result<()
                     Ok(v) => v,
                     Err(e) => { warn!(%e, "accept 失败"); continue; }
                 };
-                let store = store.clone();
+                let ctx = ctx.clone();
                 tokio::spawn(async move {
                     let io = TokioIo::new(stream);
-                    let service = service_fn(move |req| handle(req, peer, store.clone()));
+                    let service = service_fn(move |req| handle(req, peer, ctx.clone()));
                     if let Err(e) = hyper::server::conn::http1::Builder::new()
                         .preserve_header_case(true)
                         .serve_connection(io, service)
@@ -65,47 +73,62 @@ pub async fn serve(config: Config, store: Arc<CaptureStore>) -> crate::Result<()
 async fn handle(
     req: Request<Incoming>,
     peer: SocketAddr,
-    store: Arc<CaptureStore>,
+    ctx: Ctx,
 ) -> Result<Response<ResBody>, Infallible> {
     if req.method() == Method::CONNECT {
-        Ok(handle_connect(req, peer, store))
+        Ok(handle_connect(req, peer, ctx))
     } else {
-        Ok(handle_http(req, peer, store).await)
+        Ok(handle_http(req, peer, ctx).await)
     }
 }
 
-/// 明文 HTTP 转发。
-async fn handle_http(
-    req: Request<Incoming>,
-    peer: SocketAddr,
-    store: Arc<CaptureStore>,
-) -> Response<ResBody> {
+/// 明文 HTTP 转发（含规则求值与改写）。
+async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Response<ResBody> {
+    let store = &ctx.store;
     let id = store.next_id();
     let method = req.method().to_string();
     let uri = req.uri().clone();
     let url = uri.to_string();
     let host = uri.host().unwrap_or("").to_string();
     let port = uri.port_u16().unwrap_or(80);
+    let path = uri.path().to_string();
 
     let mut traffic = Traffic::new(id, "http", &method, &url, &host, &peer.to_string());
     traffic.req_headers = collect_headers(req.headers());
-    store.upsert(traffic.clone());
 
     if host.is_empty() {
         return finish_error(
-            &store,
+            store,
             &mut traffic,
             StatusCode::BAD_REQUEST,
             "缺少目标主机（请将本程序设置为 HTTP 代理后再访问）",
         );
     }
 
+    // 规则求值。
+    let input = MatchInput::new("http", &host, &path);
+    let ops = ctx.rules.match_request(&input);
+    traffic.rules = ops.iter().map(|o| o.raw.clone()).collect();
+    store.upsert(traffic.clone());
+
+    // 请求阶段：mock 或确定转发目标。
+    let (up_host, up_port) = match apply::request_action(&ops, &host, port) {
+        RequestAction::Mock(resp) => {
+            traffic.status = Some(resp.status().as_u16());
+            traffic.res_headers = collect_headers(resp.headers());
+            traffic.finish();
+            store.upsert(traffic);
+            return resp;
+        }
+        RequestAction::Forward { host, port } => (host, port),
+    };
+
     // 连接上游并完成 HTTP/1 握手。
-    let stream = match TcpStream::connect((host.as_str(), port)).await {
+    let stream = match TcpStream::connect((up_host.as_str(), up_port)).await {
         Ok(s) => s,
         Err(e) => {
             return finish_error(
-                &store,
+                store,
                 &mut traffic,
                 StatusCode::BAD_GATEWAY,
                 &format!("连接上游失败: {e}"),
@@ -117,7 +140,7 @@ async fn handle_http(
         Ok(v) => v,
         Err(e) => {
             return finish_error(
-                &store,
+                store,
                 &mut traffic,
                 StatusCode::BAD_GATEWAY,
                 &format!("上游握手失败: {e}"),
@@ -130,7 +153,7 @@ async fn handle_http(
         }
     });
 
-    // 代理收到的是 absolute-form 目标，转发上游时改写为 origin-form。
+    // absolute-form → origin-form，并应用请求改写。
     let (mut parts, body) = req.into_parts();
     let pq = parts
         .uri
@@ -140,19 +163,21 @@ async fn handle_http(
         .to_string();
     parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
     remove_hop_headers(&mut parts.headers);
+    apply::apply_request_headers(&mut parts.headers, &ops);
     let upstream_req = Request::from_parts(parts, body);
 
     match sender.send_request(upstream_req).await {
         Ok(resp) => {
-            traffic.status = Some(resp.status().as_u16());
-            traffic.res_headers = collect_headers(resp.headers());
+            let (mut rparts, body) = resp.into_parts();
+            apply::apply_response(&mut rparts, &ops);
+            traffic.status = Some(rparts.status.as_u16());
+            traffic.res_headers = collect_headers(&rparts.headers);
             traffic.finish();
             store.upsert(traffic);
-            let (parts, body) = resp.into_parts();
-            Response::from_parts(parts, body.map_err(Into::into).boxed())
+            Response::from_parts(rparts, body.map_err(Into::into).boxed())
         }
         Err(e) => finish_error(
-            &store,
+            store,
             &mut traffic,
             StatusCode::BAD_GATEWAY,
             &format!("上游请求失败: {e}"),
@@ -161,11 +186,8 @@ async fn handle_http(
 }
 
 /// CONNECT 盲隧道：先回 200，再在升级后做 TCP 双向转发。
-fn handle_connect(
-    req: Request<Incoming>,
-    peer: SocketAddr,
-    store: Arc<CaptureStore>,
-) -> Response<ResBody> {
+fn handle_connect(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Response<ResBody> {
+    let store = ctx.store.clone();
     let authority = req
         .uri()
         .authority()
@@ -192,7 +214,7 @@ fn handle_connect(
                     Ok(mut upstream) => {
                         traffic.status = Some(200);
                         match tokio::io::copy_bidirectional(&mut client_io, &mut upstream).await {
-                            Ok((up, down)) => debug!(target=%target, up, down, "隧道关闭"),
+                            Ok((up, down)) => debug!(target = %target, up, down, "隧道关闭"),
                             Err(e) => debug!(%e, "隧道传输错误"),
                         }
                     }
@@ -207,7 +229,7 @@ fn handle_connect(
 
     Response::builder()
         .status(StatusCode::OK)
-        .body(empty_body())
+        .body(apply::empty_body())
         .expect("构造 200 响应不应失败")
 }
 
@@ -225,7 +247,7 @@ fn finish_error(
     store.upsert(traffic.clone());
     Response::builder()
         .status(status)
-        .body(text_body(msg))
+        .body(apply::text_body(msg))
         .expect("构造错误响应不应失败")
 }
 
@@ -261,16 +283,4 @@ fn remove_hop_headers(map: &mut hyper::HeaderMap) {
     }
     map.remove("keep-alive");
     map.remove("proxy-connection");
-}
-
-fn empty_body() -> ResBody {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn text_body(s: &str) -> ResBody {
-    Full::new(Bytes::from(s.to_string()))
-        .map_err(|never| match never {})
-        .boxed()
 }

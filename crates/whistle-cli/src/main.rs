@@ -25,6 +25,9 @@ enum Command {
         /// 代理监听端口。
         #[arg(short, long, default_value_t = whistle_core::config::DEFAULT_PROXY_PORT)]
         port: u16,
+        /// 规则文件路径（whistle 规则语法）。
+        #[arg(short, long)]
+        rules: Option<String>,
     },
     /// 停止代理服务。
     Stop,
@@ -53,9 +56,10 @@ async fn main() -> anyhow::Result<()> {
     init_tracing(cli.verbose);
 
     match cli.command {
-        Command::Start { port } => {
+        Command::Start { port, rules } => {
             let config = Config {
                 port,
+                rules_file: rules,
                 ..Config::default()
             };
             whistle_core::start(config).await?;

@@ -1,0 +1,28 @@
+# whistle-rs 示例规则文件
+#
+# 语法：<匹配模式> <协议>://<参数> ...
+# 用法：w2r start --rules examples/rules.txt
+#
+# 当前已实现的协议（M2 / P0）：
+#   host  redirect  file  rawfile  statusCode  reqHeaders  resHeaders  reqType  resType  ua  referer
+
+# 1) 把某域名的流量转发到本地服务（host:// 覆盖上游目标，保留原 Host 头）
+www.example.com host://127.0.0.1:8080
+
+# 2) 转发并注入响应头（多个用 & 连接）
+api.example.com host://127.0.0.1:3000 resHeaders://x-from=whistle-rs&access-control-allow-origin=*
+
+# 3) 用本地文件 mock 接口返回（按扩展名推断 Content-Type）
+api.example.com/config file:///tmp/config.json
+
+# 4) 直接返回状态码（mock，无 body）
+example.com/maintenance statusCode://503
+
+# 5) 302 重定向
+old.example.com redirect://https://new.example.com
+
+# 6) 正则匹配：拦截所有图片请求返回 404
+/\.(png|jpe?g|gif|webp)(\?.*)?$/ statusCode://404
+
+# 7) 通配符匹配子域名 + 覆盖 UA / 注入请求头
+*.test.example.com ua://whistle-rs/0.0 reqHeaders://x-debug=1

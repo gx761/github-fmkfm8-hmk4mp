@@ -19,6 +19,8 @@ pub struct Config {
     pub host: String,
     /// 抓包存储容量（最近 N 条）。
     pub capture_capacity: usize,
+    /// 规则文件路径（可选）。
+    pub rules_file: Option<String>,
 }
 
 impl Default for Config {
@@ -27,6 +29,7 @@ impl Default for Config {
             port: DEFAULT_PROXY_PORT,
             host: "127.0.0.1".to_string(),
             capture_capacity: DEFAULT_CAPTURE_CAPACITY,
+            rules_file: None,
         }
     }
 }

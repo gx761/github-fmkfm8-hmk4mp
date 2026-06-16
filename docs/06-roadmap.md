@@ -13,11 +13,12 @@
 - 构造 `TrafficCtx`、分配 `traffic_id`、记录请求/响应元数据到 `whistle-capture`（内存环形缓冲）。
 - **产出**：浏览器设代理后可正常上网，内核记录到流量条目。
 
-## M2 · 规则引擎 + P0 协议
-- `whistle-rules`：DSL 解析、模式匹配、求值管线。
-- 实现 P0 协议：`host`/`xhost`、`redirect`、`file`/`xfile`/`rawfile`/`tpl`、`statusCode`、`reqHeaders`/`resHeaders`、`reqCookies`/`resCookies`、`reqType`/`resType`、`ignore`/`disable`/`enable`。
-- 建立规则兼容性测试集（与 whistle 行为对比）。
-- **产出**：可用文本规则改写/Mock 真实请求。
+## M2 · 规则引擎 + P0 协议 — ✅ 已完成（核心）
+- [x] `whistle-rules`：DSL 解析（正则/通配符/URL 前缀/域名+路径）、模式匹配、求值管线（含 11 项单测）。
+- [x] 实现 P0 协议：`host`、`redirect`、`file`/`rawfile`、`statusCode`、`reqHeaders`/`resHeaders`、`reqType`/`resType`，附带 `ua`/`referer`。
+- [x] 端到端验证：经代理对 host/redirect/file/statusCode/resHeaders 均行为正确。
+- 待补：`xhost`/`xfile`/`tpl`、`reqCookies`/`resCookies`、`ignore`/`disable`/`enable` 等（后续补齐）。
+- **产出**：可用文本规则（`--rules`）改写/Mock 真实请求，示例见 `examples/rules.txt`。
 
 ## M3 · HTTPS MITM
 - `whistle-tls`：首启生成根 CA；按 SNI 动态签发并缓存叶子证书；CA 导出与安装引导（`w2r ca`）。
