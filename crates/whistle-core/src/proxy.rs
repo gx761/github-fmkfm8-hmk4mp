@@ -317,7 +317,12 @@ async fn handle_https(
         .await;
     }
 
-    let sender = match connect_tls(&up_host, up_port, host).await {
+    // 上游代理（proxy://）：先 CONNECT 到上游代理打隧道，再在其上做 TLS。
+    let sender = match apply::upstream_proxy(&ops) {
+        Some((ph, pp)) => connect_tls_via_proxy(&ph, pp, &up_host, up_port, host).await,
+        None => connect_tls(&up_host, up_port, host).await,
+    };
+    let sender = match sender {
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
@@ -496,6 +501,79 @@ async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<Res
     tokio::spawn(async move {
         if let Err(e) = conn.with_upgrades().await {
             debug!(%e, "上游 TLS 连接结束");
+        }
+    });
+    Ok(sender)
+}
+
+/// 经上游 HTTP 代理建立到目标的 TLS 连接：先对上游代理发 CONNECT 打隧道，
+/// 再在隧道上做 TLS（SNI = 原始 host）。用于 `proxy://` + HTTPS 的级联场景。
+async fn connect_tls_via_proxy(
+    proxy_host: &str,
+    proxy_port: u16,
+    target_host: &str,
+    target_port: u16,
+    sni: &str,
+) -> Result<SendRequest<ResBody>, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut tcp = TcpStream::connect((proxy_host, proxy_port))
+        .await
+        .map_err(|e| format!("连接上游代理失败: {e}"))?;
+    let connect_req = format!(
+        "CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\n\r\n"
+    );
+    tcp.write_all(connect_req.as_bytes())
+        .await
+        .map_err(|e| format!("发送 CONNECT 失败: {e}"))?;
+
+    // 读取 CONNECT 响应头（到 \r\n\r\n 为止；隧道建立前服务端不会先发数据）。
+    let mut buf = Vec::with_capacity(256);
+    let mut byte = [0u8; 1];
+    loop {
+        let n = tcp
+            .read(&mut byte)
+            .await
+            .map_err(|e| format!("读取 CONNECT 响应失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        buf.push(byte[0]);
+        if buf.ends_with(b"\r\n\r\n") {
+            break;
+        }
+        if buf.len() > 8192 {
+            return Err("CONNECT 响应过大".to_string());
+        }
+    }
+    let head = String::from_utf8_lossy(&buf);
+    let ok = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .map(|c| c.starts_with('2'))
+        .unwrap_or(false);
+    if !ok {
+        return Err(format!(
+            "上游代理 CONNECT 失败: {}",
+            head.lines().next().unwrap_or("")
+        ));
+    }
+
+    // 在隧道之上做 TLS。
+    let connector = TlsConnector::from(whistle_tls::client_config());
+    let server_name =
+        ServerName::try_from(sni.to_string()).map_err(|e| format!("非法 SNI: {e}"))?;
+    let tls = connector
+        .connect(server_name, tcp)
+        .await
+        .map_err(|e| format!("隧道内 TLS 握手失败: {e}"))?;
+    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
+        .await
+        .map_err(|e| format!("上游握手失败: {e}"))?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.with_upgrades().await {
+            debug!(%e, "上游 TLS(经代理) 连接结束");
         }
     });
     Ok(sender)

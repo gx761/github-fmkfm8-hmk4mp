@@ -42,8 +42,9 @@
 - [x] WebSocket **帧级抓取**：转发与解析解耦（原样转发，旁路解析帧），记录每条
   文本/控制消息的方向/opcode/预览/大小到抓包，UI 展示；端到端验证 send/recv 消息抓取通过。
 - [x] TCP：`--no-decrypt` 下 CONNECT 走盲隧道（字节级双向转发）。
-- [x] 上游 HTTP 代理 `proxy://`（明文 HTTP，absolute-form 转发）；端到端验证两级代理链路通过。
-- 待补：HTTPS 经上游代理、`socks`/`pac`、本地 SOCKS5 入站。
+- [x] 上游 HTTP 代理 `proxy://`：明文 HTTP（absolute-form 转发）与 **HTTPS（先 CONNECT 打隧道再 TLS）**；
+  端到端验证两级代理链路（含 MITM→上游代理→TLS 源站）通过。
+- 待补：`socks`/`pac`、本地 SOCKS5 入站。
 - **产出**：浏览器 WebSocket 可经代理正常工作；支持级联到上游 HTTP 代理。
 
 ## M6 · P1 协议横向铺开 — 🟡 进行中（主体已完成）
