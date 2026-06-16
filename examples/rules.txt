@@ -8,7 +8,7 @@
 #   头/Cookie : reqHeaders resHeaders reqCookies resCookies reqType resType ua referer attachment
 #               forwardedFor  headerReplace  delete
 #   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
-#   状态/方法 : replaceStatus  method
+#   状态/方法/查询 : replaceStatus  method  pathReplace  locationHref
 #   时延      : reqDelay  resDelay
 #   其它      : urlParams  auth  reqCors  resCors
 
@@ -44,3 +44,6 @@ slow.example.com reqDelay://500 resDelay://500 replaceStatus://200
 
 # 11) 伪造来源 IP、删除响应 Server 头、改写 UA 中的关键字
 secure.example.com forwardedFor://1.2.3.4 delete://resHeaders.server headerReplace://user-agent=Mozilla|whistle-rs
+
+# 12) 改写请求路径段、并覆盖响应 location 头
+api.example.com pathReplace:///v1|/v2 locationHref://https://cdn.example.com/asset

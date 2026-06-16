@@ -523,6 +523,7 @@ async fn send_and_capture(
             .unwrap_or("/")
             .to_string();
         let pq = apply::merge_url_params(&pq, ops);
+        let pq = apply::rewrite_path(&pq, ops);
         parts.uri = pq.parse().unwrap_or_else(|_| "/".parse().unwrap());
     }
     remove_hop_headers(&mut parts.headers);

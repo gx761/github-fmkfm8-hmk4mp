@@ -162,6 +162,10 @@ pub fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Operation
             );
         }
     }
+    // locationHref://url → 设置/覆盖响应 location 头。
+    if let Some(url) = last_value(ops, "locationHref") {
+        set_header(&mut parts.headers, LOCATION.as_str(), url);
+    }
     // delete://resHeaders.NAME → 删除响应头。
     for target in all_values(ops, "delete") {
         if let Some(name) = target.strip_prefix("resHeaders.") {
@@ -232,6 +236,18 @@ pub fn merge_url_params(pq: &str, ops: &[Operation]) -> String {
         .collect::<Vec<_>>()
         .join("&");
     format!("{path}?{q}")
+}
+
+/// `pathReplace://<from>|<to>`：对 path_and_query 做字符串替换。
+/// 每个值以第一个 `|` 切出 `from`/`to`，按出现顺序依次替换；无 `|` 则跳过。
+pub fn rewrite_path(pq: &str, ops: &[Operation]) -> String {
+    let mut out = pq.to_string();
+    for v in all_values(ops, "pathReplace") {
+        if let Some((from, to)) = v.split_once('|') {
+            out = out.replace(from, to);
+        }
+    }
+    out
 }
 
 /// 合并若干 `a=1&b=2` 到现有 Cookie 头。
@@ -762,6 +778,25 @@ mod tests {
         h2.insert("user-agent", HeaderValue::from_static("curl/8.0"));
         apply_request_headers(&mut h2, &o2);
         assert_eq!(h2["user-agent"], "curl/8.0");
+    }
+
+    #[test]
+    fn path_replace_rewrites_segment() {
+        let o = ops("x.com pathReplace:///old|/new", "http", "x.com", "/old/a");
+        assert_eq!(rewrite_path("/old/a?b=1", &o), "/new/a?b=1");
+    }
+
+    #[test]
+    fn location_href_sets_header() {
+        let o = ops(
+            "x.com locationHref://https://new.example.com/x",
+            "http",
+            "x.com",
+            "/",
+        );
+        let mut parts = hyper::Response::new(()).into_parts().0;
+        apply_response(&mut parts, &o);
+        assert_eq!(parts.headers[LOCATION], "https://new.example.com/x");
     }
 
     #[test]
