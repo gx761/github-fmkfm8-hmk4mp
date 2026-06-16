@@ -28,22 +28,24 @@ cargo test --workspace
 ## 已实现能力
 
 - **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密（动态签发证书，`w2r ca export` 安装根证书后即可）；CONNECT 盲隧道（`--no-decrypt`）。
-- **WebSocket**：`ws://` 与 `wss://` 升级转发（101 后双向中继）。
+- **WebSocket**：`ws://` 与 `wss://` 升级转发，并做**帧级抓取**（记录每条消息的方向/类型/预览/大小）。
 - **级联代理**：`proxy://` 转发到上游 HTTP 代理。
-- **Web 管理界面**：实时抓包列表 + 请求详情（头/命中规则）+ 在线规则编辑（保存即热生效）。
-- **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 30 个协议：
+- **正文抓取**：记录请求/响应正文预览（已知长度且不超限时缓冲，默认 512KB，否则保持流式）。
+- **Web 管理界面**：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）。
+- **CLI**：`w2r start` / `stop` / `status`（基于 PID 文件）/ `ca export` / `ca path`。
+- **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 35 个协议：
 
   | 类别 | 协议 |
   | --- | --- |
   | 转发 / Mock | `host` `redirect` `file` `rawfile` `statusCode` `proxy` |
-  | 头 / Cookie | `reqHeaders` `resHeaders` `reqCookies` `resCookies` `reqType` `resType` `ua` `referer` `attachment` `auth` `reqCors` `resCors` |
+  | 头 / Cookie | `reqHeaders` `resHeaders` `reqCookies` `resCookies` `reqType` `resType` `ua` `referer` `attachment` `auth` `reqCors` `resCors` `forwardedFor` `headerReplace` `delete` |
   | Body 改写 | `reqBody` `resBody` `reqReplace` `resReplace` `*Prepend` `*Append` `html*`/`js*`/`css*` |
   | 状态 / 方法 / 查询 | `replaceStatus` `method` `urlParams` |
   | 时延 | `reqDelay` `resDelay` |
 
-- **测试**：33 个单元/集成测试（规则匹配、inspectors、抓包存储、TLS 签发、端到端代理）。
+- **测试**：42 个单元/集成测试（规则匹配、inspectors、抓包存储、WS 帧解析、TLS 签发、端到端代理）。
 
-> 尚未实现（详见路线图）：WS 帧级抓取、`socks`/`pac`/HTTPS 经上游代理、HTTP/2 MITM、插件体系、Composer、P2 协议。
+> 尚未实现（详见路线图）：`socks`/`pac`、HTTPS 经上游代理、HTTP/2 MITM、插件体系、Composer、P2 协议。
 
 ## 工程结构
 
