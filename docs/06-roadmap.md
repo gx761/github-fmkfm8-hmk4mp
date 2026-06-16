@@ -52,11 +52,17 @@
   （仅当命中 body 改写规则时才缓冲 body，否则保持流式转发。）
 - [x] 头/Cookie：`reqCookies`/`resCookies`、`attachment`（`referer`/`ua` 已于 M2 完成）。
 - [x] 网络模拟：`reqDelay`/`resDelay`（`reqSpeed`/`resSpeed` 待补）。
-- [x] 状态/方法：`replaceStatus`、`method`。
-- 待补：`headerReplace`/`forwardedFor`/`*Cors`/`auth`/`*Charset`、`urlParams`/`pathReplace`/
-  `locationHref`、规则注入类（`reqRules`/`resRules`/`includeFilter`/`excludeFilter`/`skip`）。
-- 端到端验证：resReplace+html(Pre/Ap)pend、resBody、replaceStatus 均生效。
-- **产出**：覆盖绝大多数日常调试场景（mock body、注入脚本、改状态、延迟）。
+- [x] 状态/方法/路径：`replaceStatus`、`method`、`urlParams`、`pathReplace`、`locationHref`。
+- [x] 头/CORS/鉴权：`headerReplace`、`forwardedFor`、`reqCors`/`resCors`、`auth`、`delete`。
+- 待补：`*Charset`、`reqSpeed`/`resSpeed`、规则注入类（`reqRules`/`resRules`/`includeFilter`/`excludeFilter`/`skip`）。
+- 端到端验证：resReplace+html(Pre/Ap)pend、resBody、replaceStatus、urlParams、auth、CORS 均生效。
+- **产出**：覆盖绝大多数日常调试场景（mock body、注入脚本、改状态/路径、延迟、CORS、鉴权）。
+
+## 工程/可用性增强（里程碑外）
+- [x] 抽出独立的 `whistle-inspectors` crate（兑现 docs/03 的模块拆分计划）。
+- [x] 抓包请求/响应正文与 WebSocket 帧级消息记录，Web UI 展示。
+- [x] `w2r stop`/`status`（PID 文件）、`w2r start --config <file.toml>`（TOML 配置）。
+- [x] 端到端集成测试（真实 TCP 上的代理转发/mock/body 改写）。
 
 ## M7 · 插件体系
 - `whistle-plugin`：兼容「插件即本地 HTTP 服务」模型，支持 `plugin://`、`plugin-vars`、`pipe`。
