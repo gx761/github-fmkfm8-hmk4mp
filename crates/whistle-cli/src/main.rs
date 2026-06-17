@@ -25,6 +25,9 @@ enum Command {
         /// TOML 配置文件路径；提供时优先使用配置文件，忽略其它 start 参数。
         #[arg(long)]
         config: Option<String>,
+        /// 监听地址（默认 127.0.0.1；容器中可设 0.0.0.0）。
+        #[arg(long)]
+        host: Option<String>,
         /// 代理监听端口。
         #[arg(short, long, default_value_t = whistle_core::config::DEFAULT_PROXY_PORT)]
         port: u16,
@@ -86,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Start {
             config: config_path,
+            host,
             port,
             rules,
             data_dir,
@@ -101,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
                     cfg
                 }
                 None => Config {
+                    host: host.unwrap_or_else(|| Config::default().host),
                     port,
                     rules_file: rules,
                     data_dir,

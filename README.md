@@ -23,7 +23,12 @@ cargo run --bin w2r -- ca export whistle-rs-ca.pem
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+
+# 容器运行（代理 8899 / 管理界面 8900）
+docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistle-rs
 ```
+
+> 发布：推送 `v*` tag 触发 `.github/workflows/release.yml`，自动构建 Linux/macOS(x86_64+arm64)/Windows 的 `w2r` 二进制并附加到 GitHub Release。
 
 ## 已实现能力
 
