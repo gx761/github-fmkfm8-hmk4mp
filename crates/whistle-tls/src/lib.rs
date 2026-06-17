@@ -116,7 +116,8 @@ impl CertAuthority {
         let mut cfg = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(chain, key)?;
-        cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+        // 同时提供 h2 与 http/1.1，由客户端 ALPN 选择（中间人对客户端侧）。
+        cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         Ok(cfg)
     }
 }

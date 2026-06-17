@@ -74,7 +74,8 @@
 - **产出**：可对接现有 whistle 插件（按 HTTP 契约）。
 
 ## M8 · HTTP/2 与 P2 协议、打磨
-- HTTP/2 MITM（多路复用 + ALPN）。
+- [x] HTTP/2 MITM（客户端侧）：MITM 证书 ALPN 提供 `h2`/`http-1.1`，按协商以 hyper http2
+  服务客户端；上游仍走 http/1.1。端到端验证 `curl --http2` 经代理得到 HTTP/2 200。
 - P2 协议：`reqWrite*`/`resWrite*`/`*Merge`/`responseFor`/`cipher`/`sniCallback`/`tunnel`/`trailers`/`cache`/`log` 等。
 - [x] Composer（请求重放/构造）—— 已于里程碑外完成。
 - 性能基准（`criterion`）、内存/吞吐与 Node 版对比报告，多平台发布二进制。

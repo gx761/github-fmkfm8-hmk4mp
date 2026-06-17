@@ -376,6 +376,8 @@ where
             return;
         }
     };
+    // 读取 ALPN 协商结果，决定以 h2 还是 http/1.1 服务客户端。
+    let is_h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2".as_slice());
 
     let host = Arc::new(host);
     let service = service_fn(move |req| {
@@ -383,8 +385,18 @@ where
         let host = host.clone();
         async move { Ok::<_, Infallible>(handle_https(req, &host, port, peer, ctx).await) }
     });
-    if let Err(e) = hyper::server::conn::http1::Builder::new()
-        .serve_connection(TokioIo::new(tls), service)
+    let io = TokioIo::new(tls);
+    if is_h2 {
+        // HTTP/2：上游仍走 http/1.1（在 handle_https 内连接），此处仅对客户端用 h2。
+        if let Err(e) =
+            hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                .serve_connection(io, service)
+                .await
+        {
+            debug!(%e, "MITM(h2) 连接结束");
+        }
+    } else if let Err(e) = hyper::server::conn::http1::Builder::new()
+        .serve_connection(io, service)
         .with_upgrades()
         .await
     {

@@ -27,7 +27,7 @@ cargo test --workspace
 
 ## 已实现能力
 
-- **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密（动态签发证书，`w2r ca export` 安装根证书后即可）；CONNECT 盲隧道（`--no-decrypt`）。
+- **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密（动态签发证书，`w2r ca export` 安装根证书后即可）；**HTTP/2**（客户端侧按 ALPN 协商 h2）；CONNECT 盲隧道（`--no-decrypt`）。
 - **WebSocket**：`ws://` 与 `wss://` 升级转发，并做**帧级抓取**（记录每条消息的方向/类型/预览/大小）。
 - **级联代理**：`proxy://` 转发到上游 HTTP 代理（HTTP 与 HTTPS 均支持）。
 - **SOCKS5 入站**：与 HTTP 代理共用端口；`curl --socks5-hostname` 的 HTTPS 走 MITM、其余盲隧道。
@@ -46,7 +46,7 @@ cargo test --workspace
 
 - **测试**：47 个单元/集成测试（规则匹配、inspectors、抓包存储、WS 帧解析、TLS 签发、端到端代理）。
 
-> 尚未实现（详见路线图）：`socks://`（上游 SOCKS）/`pac`、HTTP/2 MITM、插件体系、P2 协议。
+> 尚未实现（详见路线图）：`socks://`（上游 SOCKS）/`pac`、上游侧 HTTP/2、插件体系、P2 协议。
 
 ## 工程结构
 
