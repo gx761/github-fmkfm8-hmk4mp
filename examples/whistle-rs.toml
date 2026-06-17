@@ -20,3 +20,8 @@ decrypt_https = true
 
 # 数据目录（CA、配置）；缺省时使用 ~/.whistle-rs。
 # data_dir = "~/.whistle-rs"
+
+# 插件映射：plugin://<name> → 插件 HTTP 服务地址。
+# 配合规则 `some.host plugin://myplugin` 使用；示例插件见 examples/plugin_example.py。
+# [plugins]
+# myplugin = "127.0.0.1:9300"

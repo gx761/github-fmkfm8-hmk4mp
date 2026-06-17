@@ -4,6 +4,7 @@
 //! - CONNECT + `decrypt_https=true`：动态签发证书做中间人，解密后逐请求按
 //!   HTTPS 转发并抓包；`=false` 时退化为盲隧道（TCP 双向转发）。
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -21,7 +22,7 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{debug, info, warn};
 
 use whistle_capture::{CaptureStore, Header, Traffic};
-use whistle_rules::{MatchInput, Operation, RuleSet};
+use whistle_rules::{last_value, MatchInput, Operation, RuleSet};
 use whistle_tls::CertAuthority;
 
 use crate::Config;
@@ -35,6 +36,7 @@ struct Ctx {
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
     body_limit: usize,
+    plugins: Arc<HashMap<String, String>>,
 }
 
 /// 监听代理端口并处理连接，直到收到 Ctrl-C。
@@ -58,11 +60,13 @@ pub async fn serve(
         ca,
         config.decrypt_https,
         config.capture_body_limit,
+        Arc::new(config.plugins.clone()),
     )
     .await
 }
 
 /// 在给定监听器上处理连接（便于测试注入端口）。直到收到 Ctrl-C 返回。
+#[allow(clippy::too_many_arguments)]
 pub async fn serve_listener(
     listener: TcpListener,
     store: Arc<CaptureStore>,
@@ -70,6 +74,7 @@ pub async fn serve_listener(
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
     body_limit: usize,
+    plugins: Arc<HashMap<String, String>>,
 ) -> crate::Result<()> {
     let ctx = Ctx {
         store,
@@ -77,6 +82,7 @@ pub async fn serve_listener(
         ca,
         decrypt_https,
         body_limit,
+        plugins,
     };
 
     loop {
@@ -151,6 +157,11 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
     }
 
     let ops = eval_rules(&ctx, "http", &host, &path, &mut traffic);
+
+    // plugin://name：命中且已配置则交由插件应答。
+    if let Some(addr) = plugin_target(&ctx, &ops) {
+        return run_plugin(req, &url, &addr, traffic, store, ctx.body_limit).await;
+    }
 
     let (up_host, up_port) = match apply::request_action(&ops, &host, port) {
         RequestAction::Mock(resp) => return finish_mock(store, traffic, resp),
@@ -428,6 +439,11 @@ async fn handle_https(
     traffic.req_headers = collect_headers(req.headers());
 
     let ops = eval_rules(&ctx, "https", host, &path, &mut traffic);
+
+    // plugin://name：命中且已配置则交由插件应答。
+    if let Some(addr) = plugin_target(&ctx, &ops) {
+        return run_plugin(req, &url, &addr, traffic, &ctx.store, ctx.body_limit).await;
+    }
 
     let (up_host, up_port) = match apply::request_action(&ops, host, port) {
         RequestAction::Mock(resp) => return finish_mock(store, traffic, resp),
@@ -879,6 +895,79 @@ fn split_authority(authority: &str, default: u16) -> (String, u16) {
     match authority.rsplit_once(':') {
         Some((h, p)) => (h.to_string(), p.parse().unwrap_or(default)),
         None => (authority.to_string(), default),
+    }
+}
+
+/// 若命中 `plugin://name` 且该 name 已在配置中映射，返回插件地址。
+fn plugin_target(ctx: &Ctx, ops: &[Operation]) -> Option<String> {
+    let name = last_value(ops, "plugin")?;
+    ctx.plugins.get(name).cloned()
+}
+
+/// 调用插件并据其返回构造响应（编程式 mock）。
+async fn run_plugin(
+    req: Request<Incoming>,
+    url: &str,
+    addr: &str,
+    mut traffic: Traffic,
+    store: &CaptureStore,
+    body_limit: usize,
+) -> Response<ResBody> {
+    let (parts, body) = req.into_parts();
+    let headers = parts
+        .headers
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_string(),
+                String::from_utf8_lossy(v.as_bytes()).into_owned(),
+            )
+        })
+        .collect();
+    let body_bytes = body
+        .collect()
+        .await
+        .map(|c| c.to_bytes())
+        .unwrap_or_default();
+    let preq = whistle_plugin::PluginRequest {
+        method: parts.method.to_string(),
+        url: url.to_string(),
+        headers,
+        body: String::from_utf8_lossy(&body_bytes).into_owned(),
+    };
+
+    match whistle_plugin::invoke(addr, &preq).await {
+        Ok(presp) => {
+            let status = presp.status.unwrap_or(200);
+            let mut builder =
+                Response::builder().status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK));
+            for (k, v) in &presp.headers {
+                builder = builder.header(k, v);
+            }
+            let resp = match builder.body(apply::full_body(presp.body.clone().into_bytes())) {
+                Ok(r) => r,
+                Err(_) => {
+                    return finish_error(
+                        store,
+                        &mut traffic,
+                        StatusCode::BAD_GATEWAY,
+                        "插件响应头非法",
+                    )
+                }
+            };
+            traffic.status = Some(status);
+            traffic.res_headers = collect_headers(resp.headers());
+            traffic.set_res_body(presp.body.as_bytes(), body_limit);
+            traffic.finish();
+            store.upsert(traffic);
+            resp
+        }
+        Err(e) => finish_error(
+            store,
+            &mut traffic,
+            StatusCode::BAD_GATEWAY,
+            &format!("插件调用失败: {e}"),
+        ),
     }
 }
 

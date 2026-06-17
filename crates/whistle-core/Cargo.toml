@@ -11,6 +11,7 @@ whistle-inspectors.workspace = true
 whistle-rules.workspace = true
 whistle-tls.workspace = true
 whistle-web.workspace = true
+whistle-plugin.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 rustls.workspace = true

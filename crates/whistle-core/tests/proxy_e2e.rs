@@ -44,8 +44,16 @@ async fn spawn_proxy(rules_text: &str) -> (std::net::SocketAddr, Arc<CaptureStor
     let ca = Arc::new(CertAuthority::load_or_generate(&dir).unwrap());
     let store2 = store.clone();
     tokio::spawn(async move {
-        let _ = whistle_core::proxy::serve_listener(listener, store2, rules, ca, false, 512 * 1024)
-            .await;
+        let _ = whistle_core::proxy::serve_listener(
+            listener,
+            store2,
+            rules,
+            ca,
+            false,
+            512 * 1024,
+            std::sync::Arc::new(std::collections::HashMap::new()),
+        )
+        .await;
     });
     (addr, store)
 }

@@ -69,9 +69,13 @@
 - [x] `reqCharset`/`resCharset` 协议。
 - [x] 端到端集成测试（真实 TCP 上的代理转发/mock/body 改写）。
 
-## M7 · 插件体系
-- `whistle-plugin`：兼容「插件即本地 HTTP 服务」模型，支持 `plugin://`、`plugin-vars`、`pipe`。
-- **产出**：可对接现有 whistle 插件（按 HTTP 契约）。
+## M7 · 插件体系 — 🟡 进行中（核心已完成）
+- [x] `whistle-plugin`：whistle-rs 自有契约的「插件即本地 HTTP 服务」——
+  命中 `plugin://<name>` 时把请求序列化为 JSON `POST` 到插件 `/handle`，
+  据插件返回的 `{status,headers,body}` 产生响应（编程式 mock）。
+- [x] 插件地址经配置 `[plugins]` 映射；示例见 `examples/plugin_example.py`；端到端验证通过。
+- 待补：`plugin-vars`/`pipe`；与 whistle npm 插件的兼容层（按需）。
+- **产出**：可用外部 HTTP 插件对请求编程式应答。
 
 ## M8 · HTTP/2 与 P2 协议、打磨
 - [x] HTTP/2 MITM（客户端侧）：MITM 证书 ALPN 提供 `h2`/`http-1.1`，按协商以 hyper http2

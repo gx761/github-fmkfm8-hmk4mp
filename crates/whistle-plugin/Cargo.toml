@@ -3,6 +3,10 @@ name = "whistle-plugin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "插件协议与调度（兼容『插件即本地 HTTP 服务』）"
+description = "插件协议与调度（插件即本地 HTTP 服务）"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true

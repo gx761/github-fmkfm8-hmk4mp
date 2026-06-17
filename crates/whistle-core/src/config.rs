@@ -2,6 +2,8 @@
 //!
 //! M0 阶段只定义结构与默认值；后续里程碑接入文件/CLI 加载与热更新。
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// 默认代理端口（与 whistle 的 8899 对齐，便于对比）。
@@ -40,6 +42,8 @@ pub struct Config {
     pub ui_port: u16,
     /// 是否启用 Web 管理界面。
     pub ui_enabled: bool,
+    /// 插件映射：`plugin://<name>` → 插件 HTTP 服务地址 `host:port`。
+    pub plugins: HashMap<String, String>,
 }
 
 impl Default for Config {
@@ -54,6 +58,7 @@ impl Default for Config {
             decrypt_https: true,
             ui_port: DEFAULT_UI_PORT,
             ui_enabled: true,
+            plugins: HashMap::new(),
         }
     }
 }
