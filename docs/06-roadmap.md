@@ -17,7 +17,8 @@
 - [x] `whistle-rules`：DSL 解析（正则/通配符/URL 前缀/域名+路径）、模式匹配、求值管线（含 11 项单测）。
 - [x] 实现 P0 协议：`host`、`redirect`、`file`/`rawfile`、`statusCode`、`reqHeaders`/`resHeaders`、`reqType`/`resType`，附带 `ua`/`referer`。
 - [x] 端到端验证：经代理对 host/redirect/file/statusCode/resHeaders 均行为正确。
-- 待补：`xhost`/`xfile`/`tpl`、`reqCookies`/`resCookies`、`ignore`/`disable`/`enable` 等（后续补齐）。
+- [x] 后续补齐：`xhost`/`xfile`/`xrawfile`（fallback 变体）、`reqCookies`/`resCookies`、
+  `tpl`/`xtpl`、`ignore` 等均已实现（`enable`/`disable` 见 M8 说明）。
 - **产出**：可用文本规则（`--rules`）改写/Mock 真实请求，示例见 `examples/rules.txt`。
 
 ## M3 · HTTPS MITM — ✅ 已完成
@@ -56,7 +57,7 @@
   `reqPrepend`/`reqAppend`/`resPrepend`/`resAppend`、`html*`/`js*`/`css*`（Prepend/Append/Body）。
   （仅当命中 body 改写规则时才缓冲 body，否则保持流式转发。）
 - [x] 头/Cookie：`reqCookies`/`resCookies`、`attachment`（`referer`/`ua` 已于 M2 完成）。
-- [x] 网络模拟：`reqDelay`/`resDelay`（`reqSpeed`/`resSpeed` 待补）。
+- [x] 网络模拟：`reqDelay`/`resDelay`/`reqSpeed`/`resSpeed`。
 - [x] 状态/方法/路径：`replaceStatus`、`method`、`urlParams`、`pathReplace`、`locationHref`。
 - [x] 头/CORS/鉴权：`headerReplace`、`forwardedFor`、`reqCors`/`resCors`、`auth`、`delete`。
 - [x] 控制/过滤类：`ignore://`（剔除协议，`*` 全剔）、`includeFilter`/`excludeFilter`
@@ -82,7 +83,8 @@
   据插件返回的 `{status,headers,body}` 产生响应（编程式 mock）。
 - [x] 插件地址经配置 `[plugins]` 映射；示例见 `examples/plugin_example.py`；端到端验证通过。
 - [x] `plugin-vars://`：把 `k=v` 变量透传给插件（PluginRequest.vars）。
-- 待补：`pipe`（流式管道插件）；与 whistle npm 插件的兼容层（按需）。
+- 已决定不实现：`pipe`（流式管道插件，见 M8）；与 whistle npm 插件的二进制兼容层
+  （npm 生态相关，超出 clean-room Rust 范围）。
 - **产出**：可用外部 HTTP 插件对请求编程式应答。
 
 ## M8 · HTTP/2 与 P2 协议、打磨

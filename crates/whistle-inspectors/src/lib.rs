@@ -39,10 +39,16 @@ pub fn request_action(ops: &[Operation], host: &str, port: u16) -> RequestAction
     if let Some(code) = last_value(ops, "statusCode") {
         return RequestAction::Mock(status_mock(code));
     }
+    // xfile/xrawfile：文件存在则返回，否则放行到上游（与 file/rawfile 区别在 fallback）。
+    if let Some(path) = last_value(ops, "xfile").or_else(|| last_value(ops, "xrawfile")) {
+        if std::path::Path::new(path).is_file() {
+            return RequestAction::Mock(serve_file(path));
+        }
+    }
 
-    // host 覆盖上游目标。
+    // host/xhost 覆盖上游目标。
     let (mut up_host, mut up_port) = (host.to_string(), port);
-    if let Some(v) = last_value(ops, "host") {
+    if let Some(v) = last_value(ops, "host").or_else(|| last_value(ops, "xhost")) {
         let (h, p) = parse_host(v);
         if !h.is_empty() {
             up_host = h;
@@ -917,6 +923,38 @@ mod tests {
         let mut h2 = HeaderMap::new();
         apply_request_headers(&mut h2, &o);
         assert_eq!(h2[CONTENT_TYPE], "text/plain; charset=utf-8");
+    }
+
+    #[test]
+    fn xfile_falls_through_when_missing() {
+        // 文件不存在：xfile 应放行到上游（Forward），而非 404。
+        let o = ops(
+            "example.com xfile:///nonexistent/zz.json",
+            "http",
+            "example.com",
+            "/",
+        );
+        assert!(matches!(
+            request_action(&o, "example.com", 80),
+            RequestAction::Forward { .. }
+        ));
+    }
+
+    #[test]
+    fn xhost_overrides_target() {
+        let o = ops(
+            "example.com xhost://1.2.3.4:9000",
+            "http",
+            "example.com",
+            "/",
+        );
+        match request_action(&o, "example.com", 80) {
+            RequestAction::Forward { host, port } => {
+                assert_eq!(host, "1.2.3.4");
+                assert_eq!(port, 9000);
+            }
+            _ => panic!("应为 Forward"),
+        }
     }
 
     #[test]
