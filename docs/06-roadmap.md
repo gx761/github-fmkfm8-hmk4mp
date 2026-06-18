@@ -46,7 +46,9 @@
   端到端验证两级代理链路（含 MITM→上游代理→TLS 源站）通过。
 - [x] **本地 SOCKS5 入站**（同端口区分 SOCKS5/HTTP）：no-auth + CONNECT，TLS 走 MITM、其余盲隧道；
   端到端验证 `curl --socks5-hostname` 的 https(MITM) 与 http(隧道) 均通过。
-- 待补：`socks://`（上游 SOCKS 代理）、`pac`。
+- [x] **上游 SOCKS5 代理 `socks://`**（no-auth，域名由上游解析）：HTTP 走隧道、HTTPS 隧道后再 TLS；
+  端到端验证 A→socks://→B(SOCKS5 入站)→源站 通过。
+- 已决定不实现：`pac`（需内置 JS 引擎评估 PAC 脚本，超出 clean-room Rust 重写范围）。
 - **产出**：浏览器 WebSocket 可经代理正常工作；支持级联到上游 HTTP 代理。
 
 ## M6 · P1 协议横向铺开 — 🟡 进行中（主体已完成）

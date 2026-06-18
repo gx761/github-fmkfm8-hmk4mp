@@ -173,13 +173,18 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
         return handle_ws(req, &up_host, up_port, None, traffic, ctx.store.clone()).await;
     }
 
-    // 上游 HTTP 代理（proxy://）：连到代理并以 absolute-form 转发。
-    let (connect_host, connect_port, keep_absolute) = match apply::upstream_proxy(&ops) {
-        Some((ph, pp)) => (ph, pp, true),
-        None => (up_host, up_port, false),
+    // 上游路由：socks://（隧道，origin-form）> proxy://（HTTP 代理，absolute-form）> 直连。
+    let (sender, keep_absolute) = if let Some((sh, sp)) = apply::upstream_socks(&ops) {
+        match socks5_connect(&format!("{sh}:{sp}"), &up_host, up_port).await {
+            Ok(tcp) => (http1_client(tcp).await, false),
+            Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
+        }
+    } else if let Some((ph, pp)) = apply::upstream_proxy(&ops) {
+        (connect_plain(&ph, pp).await, true)
+    } else {
+        (connect_plain(&up_host, up_port).await, false)
     };
-
-    let sender = match connect_plain(&connect_host, connect_port).await {
+    let sender = match sender {
         Ok(s) => s,
         Err(e) => return finish_error(store, &mut traffic, StatusCode::BAD_GATEWAY, &e),
     };
@@ -463,10 +468,16 @@ async fn handle_https(
         .await;
     }
 
-    // 上游代理（proxy://）：先 CONNECT 到上游代理打隧道，再在其上做 TLS。
-    let sender = match apply::upstream_proxy(&ops) {
-        Some((ph, pp)) => connect_tls_via_proxy(&ph, pp, &up_host, up_port, host).await,
-        None => connect_tls(&up_host, up_port, host).await,
+    // 上游路由：socks://（SOCKS 隧道后 TLS）> proxy://（CONNECT 后 TLS）> 直连 TLS。
+    let sender = if let Some((sh, sp)) = apply::upstream_socks(&ops) {
+        match socks5_connect(&format!("{sh}:{sp}"), &up_host, up_port).await {
+            Ok(tcp) => tls_client(tcp, host).await,
+            Err(e) => Err(e),
+        }
+    } else if let Some((ph, pp)) = apply::upstream_proxy(&ops) {
+        connect_tls_via_proxy(&ph, pp, &up_host, up_port, host).await
+    } else {
+        connect_tls(&up_host, up_port, host).await
     };
     let sender = match sender {
         Ok(s) => s,
@@ -612,12 +623,12 @@ fn eval_rules(
     ops
 }
 
-/// 建立到上游的明文 HTTP/1 连接，返回可发送请求的 sender。
-async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<ResBody>, String> {
-    let stream = TcpStream::connect((host, port))
-        .await
-        .map_err(|e| format!("连接上游失败: {e}"))?;
-    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+/// 在已建立的流上完成 HTTP/1 握手，返回 sender（驱动连接，支持升级）。
+async fn http1_client<S>(io: S) -> Result<SendRequest<ResBody>, String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(io))
         .await
         .map_err(|e| format!("上游握手失败: {e}"))?;
     tokio::spawn(async move {
@@ -629,27 +640,35 @@ async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<ResBody>, St
     Ok(sender)
 }
 
+/// 在已建立的流上做 TLS（SNI=sni）后完成 HTTP/1 握手。
+async fn tls_client<S>(io: S, sni: &str) -> Result<SendRequest<ResBody>, String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let connector = TlsConnector::from(whistle_tls::client_config());
+    let server_name =
+        ServerName::try_from(sni.to_string()).map_err(|e| format!("非法 SNI: {e}"))?;
+    let tls = connector
+        .connect(server_name, io)
+        .await
+        .map_err(|e| format!("上游 TLS 握手失败: {e}"))?;
+    http1_client(tls).await
+}
+
+/// 建立到上游的明文 HTTP/1 连接。
+async fn connect_plain(host: &str, port: u16) -> Result<SendRequest<ResBody>, String> {
+    let stream = TcpStream::connect((host, port))
+        .await
+        .map_err(|e| format!("连接上游失败: {e}"))?;
+    http1_client(stream).await
+}
+
 /// 建立到上游的 TLS HTTP/1 连接（SNI = 原始 host）。
 async fn connect_tls(host: &str, port: u16, sni: &str) -> Result<SendRequest<ResBody>, String> {
     let tcp = TcpStream::connect((host, port))
         .await
         .map_err(|e| format!("连接上游失败: {e}"))?;
-    let connector = TlsConnector::from(whistle_tls::client_config());
-    let server_name =
-        ServerName::try_from(sni.to_string()).map_err(|e| format!("非法 SNI: {e}"))?;
-    let tls = connector
-        .connect(server_name, tcp)
-        .await
-        .map_err(|e| format!("上游 TLS 握手失败: {e}"))?;
-    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
-        .await
-        .map_err(|e| format!("上游握手失败: {e}"))?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.with_upgrades().await {
-            debug!(%e, "上游 TLS 连接结束");
-        }
-    });
-    Ok(sender)
+    tls_client(tcp, sni).await
 }
 
 /// 经上游 HTTP 代理建立到目标的 TLS 连接：先对上游代理发 CONNECT 打隧道，
@@ -703,24 +722,55 @@ async fn connect_tls_via_proxy(
             head.lines().next().unwrap_or("")
         ));
     }
+    tls_client(tcp, sni).await
+}
 
-    // 在隧道之上做 TLS。
-    let connector = TlsConnector::from(whistle_tls::client_config());
-    let server_name =
-        ServerName::try_from(sni.to_string()).map_err(|e| format!("非法 SNI: {e}"))?;
-    let tls = connector
-        .connect(server_name, tcp)
+/// 通过上游 SOCKS5 代理（no-auth）连到目标，返回隧道 TcpStream（域名由上游解析）。
+async fn socks5_connect(
+    socks_addr: &str,
+    target_host: &str,
+    target_port: u16,
+) -> Result<TcpStream, String> {
+    let mut tcp = TcpStream::connect(socks_addr)
         .await
-        .map_err(|e| format!("隧道内 TLS 握手失败: {e}"))?;
-    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
+        .map_err(|e| format!("连接上游 SOCKS 失败: {e}"))?;
+    // 方法协商：VER=5, NMETHODS=1, METHOD=0(no-auth)。
+    tcp.write_all(&[0x05, 0x01, 0x00])
         .await
-        .map_err(|e| format!("上游握手失败: {e}"))?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.with_upgrades().await {
-            debug!(%e, "上游 TLS(经代理) 连接结束");
+        .map_err(|e| e.to_string())?;
+    let mut sel = [0u8; 2];
+    tcp.read_exact(&mut sel).await.map_err(|e| e.to_string())?;
+    if sel[0] != 0x05 || sel[1] != 0x00 {
+        return Err("上游 SOCKS 不支持 no-auth".to_string());
+    }
+    // CONNECT 请求（域名形式，由上游解析）。
+    let host_bytes = target_host.as_bytes();
+    if host_bytes.len() > 255 {
+        return Err("SOCKS 目标域名过长".to_string());
+    }
+    let mut req = vec![0x05, 0x01, 0x00, 0x03, host_bytes.len() as u8];
+    req.extend_from_slice(host_bytes);
+    req.extend_from_slice(&target_port.to_be_bytes());
+    tcp.write_all(&req).await.map_err(|e| e.to_string())?;
+    // 应答：VER, REP, RSV, ATYP, BND.ADDR, BND.PORT。
+    let mut head = [0u8; 4];
+    tcp.read_exact(&mut head).await.map_err(|e| e.to_string())?;
+    if head[1] != 0x00 {
+        return Err(format!("上游 SOCKS CONNECT 失败 (REP={})", head[1]));
+    }
+    let skip = match head[3] {
+        0x01 => 4,
+        0x04 => 16,
+        0x03 => {
+            let mut l = [0u8; 1];
+            tcp.read_exact(&mut l).await.map_err(|e| e.to_string())?;
+            l[0] as usize
         }
-    });
-    Ok(sender)
+        _ => return Err("上游 SOCKS 应答 ATYP 非法".to_string()),
+    };
+    let mut rest = vec![0u8; skip + 2];
+    tcp.read_exact(&mut rest).await.map_err(|e| e.to_string())?;
+    Ok(tcp)
 }
 
 /// 转发请求到上游、应用请求/响应改写（含 body）、记录抓包。

@@ -436,6 +436,16 @@ pub fn upstream_proxy(ops: &[Operation]) -> Option<(String, u16)> {
     }
 }
 
+/// `socks://`(或 `socks5://`)：上游 SOCKS5 代理地址 `(host, port)`（默认端口 1080）。
+pub fn upstream_socks(ops: &[Operation]) -> Option<(String, u16)> {
+    let v = last_value(ops, "socks").or_else(|| last_value(ops, "socks5"))?;
+    let v = v.rsplit("://").next().unwrap_or(v);
+    match v.rsplit_once(':') {
+        Some((h, p)) => Some((h.to_string(), p.parse().unwrap_or(1080))),
+        None => Some((v.to_string(), 1080)),
+    }
+}
+
 /// 解析 `host://` 的值为 `(host, Option<port>)`。
 fn parse_host(value: &str) -> (String, Option<u16>) {
     // 容忍 `host://1.2.3.4:8080` 里再带 scheme 的少见写法。
