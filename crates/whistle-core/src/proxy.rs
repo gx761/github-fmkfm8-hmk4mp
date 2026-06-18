@@ -833,6 +833,9 @@ async fn send_and_capture(
                     bytes.to_vec()
                 };
                 traffic.set_req_body(&out, body_limit);
+                if let Some(d) = apply::req_speed_delay(ops, out.len()) {
+                    tokio::time::sleep(d).await;
+                }
                 apply::full_body(out)
             }
             Err(e) => {
@@ -874,6 +877,9 @@ async fn send_and_capture(
                             bytes.to_vec()
                         };
                         traffic.set_res_body(&out, body_limit);
+                        if let Some(d) = apply::res_speed_delay(ops, out.len()) {
+                            tokio::time::sleep(d).await;
+                        }
                         apply::full_body(out)
                     }
                     Err(e) => {

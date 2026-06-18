@@ -324,6 +324,24 @@ fn delay_of(ops: &[Operation], proto: &str) -> Option<std::time::Duration> {
         .map(std::time::Duration::from_millis)
 }
 
+/// `reqSpeed`/`resSpeed`：按 KB/s 限速，返回传输 `bytes` 字节所需的近似时延。
+/// 仅在正文被缓冲（已知大小）时生效。
+pub fn req_speed_delay(ops: &[Operation], bytes: usize) -> Option<std::time::Duration> {
+    speed_delay(ops, "reqSpeed", bytes)
+}
+pub fn res_speed_delay(ops: &[Operation], bytes: usize) -> Option<std::time::Duration> {
+    speed_delay(ops, "resSpeed", bytes)
+}
+fn speed_delay(ops: &[Operation], proto: &str, bytes: usize) -> Option<std::time::Duration> {
+    let kbps = last_value(ops, proto)?.parse::<f64>().ok()?;
+    if kbps <= 0.0 || bytes == 0 {
+        return None;
+    }
+    Some(std::time::Duration::from_secs_f64(
+        bytes as f64 / (kbps * 1024.0),
+    ))
+}
+
 /// `method://`：覆盖请求方法。
 pub fn override_method(ops: &[Operation], parts: &mut hyper::http::request::Parts) {
     if let Some(m) = last_value(ops, "method") {

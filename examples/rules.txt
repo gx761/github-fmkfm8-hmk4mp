@@ -9,7 +9,7 @@
 #               forwardedFor  headerReplace  delete  reqCharset  resCharset
 #   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
 #   状态/方法/查询 : replaceStatus  method  pathReplace  locationHref
-#   时延      : reqDelay  resDelay
+#   时延/限速 : reqDelay  resDelay  reqSpeed  resSpeed（KB/s）
 #   缓存      : cache
 #   上游路由  : proxy（上游 HTTP 代理）  socks（上游 SOCKS5 代理）
 #   插件      : plugin（外部 HTTP 插件）  plugin-vars（透传变量）

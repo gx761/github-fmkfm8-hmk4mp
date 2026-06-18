@@ -48,7 +48,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
   | 头 / Cookie | `reqHeaders` `resHeaders` `reqCookies` `resCookies` `reqType` `resType` `reqCharset` `resCharset` `ua` `referer` `attachment` `auth` `reqCors` `resCors` `forwardedFor` `headerReplace` `delete` |
   | Body 改写 | `reqBody` `resBody` `reqReplace` `resReplace` `*Prepend` `*Append` `html*`/`js*`/`css*` |
   | 状态 / 方法 / 路径 | `replaceStatus` `method` `urlParams` `pathReplace` `locationHref` |
-  | 时延 / 缓存 | `reqDelay` `resDelay` `cache` |
+  | 时延 / 限速 / 缓存 | `reqDelay` `resDelay` `reqSpeed` `resSpeed` `cache` |
   | 上游 / 插件 | `proxy` `socks` `plugin` `plugin-vars` |
   | 模板 / 控制 | `tpl` `xtpl` `ignore` `includeFilter` `excludeFilter` + `@include` 行 |
 

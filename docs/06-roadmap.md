@@ -61,7 +61,10 @@
 - [x] 头/CORS/鉴权：`headerReplace`、`forwardedFor`、`reqCors`/`resCors`、`auth`、`delete`。
 - [x] 控制/过滤类：`ignore://`（剔除协议，`*` 全剔）、`includeFilter`/`excludeFilter`
   （规则级门控，支持匹配模式与 `m:METHOD`）、`tpl`/`xtpl`（JSONP 模板）、`@include`（规则文件内联）。
-- 待补：`reqSpeed`/`resSpeed`、`reqRules`/`resRules`/`inherit`（动态规则注入）、`skip`/`enable`/`disable` 完整语义。
+- [x] 限速：`reqSpeed`/`resSpeed`（KB/s；正文缓冲时按总量近似时延）。
+- 已决定不实现：`reqRules`/`resRules`/`inherit`（运行时动态注入/继承规则集，属高耦合的
+  whistle 内部机制，价值有限）；`skip`/`enable`/`disable` 的完整 whistle 语义（与具体内置
+  行为强绑定）——常见诉求已由 `ignore://` 覆盖。
 - 端到端验证：resReplace+html(Pre/Ap)pend、resBody、replaceStatus、urlParams、auth、CORS 均生效。
 - **产出**：覆盖绝大多数日常调试场景（mock body、注入脚本、改状态/路径、延迟、CORS、鉴权）。
 
