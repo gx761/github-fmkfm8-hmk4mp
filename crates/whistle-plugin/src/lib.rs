@@ -19,6 +19,8 @@ pub struct PluginRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: String,
+    /// 来自规则 `plugin-vars://k=v&...` 的变量，透传给插件。
+    pub vars: Vec<(String, String)>,
 }
 
 /// 插件返回的响应指令。
@@ -81,6 +83,7 @@ mod tests {
             url: "http://x/".into(),
             headers: vec![("a".into(), "b".into())],
             body: String::new(),
+            vars: vec![],
         };
         let s = serde_json::to_string(&req).unwrap();
         assert!(s.contains("\"method\":\"GET\""));

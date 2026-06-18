@@ -33,6 +33,9 @@ toml = "0.8"
 # 规则引擎
 regex = "1"
 
+# 基准测试
+criterion = "0.5"
+
 # Web 管理面
 axum = { version = "0.8", features = ["ws"] }
 

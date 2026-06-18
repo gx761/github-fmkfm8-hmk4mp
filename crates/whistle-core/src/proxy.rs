@@ -160,7 +160,7 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
 
     // plugin://name：命中且已配置则交由插件应答。
     if let Some(addr) = plugin_target(&ctx, &ops) {
-        return run_plugin(req, &url, &addr, traffic, store, ctx.body_limit).await;
+        return run_plugin(req, &url, &addr, &ops, traffic, store, ctx.body_limit).await;
     }
 
     let (up_host, up_port) = match apply::request_action(&ops, &host, port) {
@@ -447,7 +447,7 @@ async fn handle_https(
 
     // plugin://name：命中且已配置则交由插件应答。
     if let Some(addr) = plugin_target(&ctx, &ops) {
-        return run_plugin(req, &url, &addr, traffic, &ctx.store, ctx.body_limit).await;
+        return run_plugin(req, &url, &addr, &ops, traffic, &ctx.store, ctx.body_limit).await;
     }
 
     let (up_host, up_port) = match apply::request_action(&ops, host, port) {
@@ -959,6 +959,7 @@ async fn run_plugin(
     req: Request<Incoming>,
     url: &str,
     addr: &str,
+    ops: &[Operation],
     mut traffic: Traffic,
     store: &CaptureStore,
     body_limit: usize,
@@ -974,6 +975,16 @@ async fn run_plugin(
             )
         })
         .collect();
+    // plugin-vars://k=v&... → 透传给插件的变量。
+    let vars = whistle_rules::all_values(ops, "plugin-vars")
+        .iter()
+        .flat_map(|v| v.split('&'))
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, val) = p.split_once('=').unwrap_or((p, ""));
+            (k.to_string(), val.to_string())
+        })
+        .collect();
     let body_bytes = body
         .collect()
         .await
@@ -984,6 +995,7 @@ async fn run_plugin(
         url: url.to_string(),
         headers,
         body: String::from_utf8_lossy(&body_bytes).into_owned(),
+        vars,
     };
 
     match whistle_plugin::invoke(addr, &preq).await {

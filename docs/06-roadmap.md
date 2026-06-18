@@ -76,16 +76,25 @@
   命中 `plugin://<name>` 时把请求序列化为 JSON `POST` 到插件 `/handle`，
   据插件返回的 `{status,headers,body}` 产生响应（编程式 mock）。
 - [x] 插件地址经配置 `[plugins]` 映射；示例见 `examples/plugin_example.py`；端到端验证通过。
-- 待补：`plugin-vars`/`pipe`；与 whistle npm 插件的兼容层（按需）。
+- [x] `plugin-vars://`：把 `k=v` 变量透传给插件（PluginRequest.vars）。
+- 待补：`pipe`（流式管道插件）；与 whistle npm 插件的兼容层（按需）。
 - **产出**：可用外部 HTTP 插件对请求编程式应答。
 
 ## M8 · HTTP/2 与 P2 协议、打磨
 - [x] HTTP/2 MITM（客户端侧）：MITM 证书 ALPN 提供 `h2`/`http-1.1`，按协商以 hyper http2
   服务客户端；上游仍走 http/1.1。端到端验证 `curl --http2` 经代理得到 HTTP/2 200。
-- P2 协议：`reqWrite*`/`resWrite*`/`*Merge`/`responseFor`/`cipher`/`sniCallback`/`tunnel`/`trailers`/`cache`/`log` 等。
-- [x] Composer（请求重放/构造）—— 已于里程碑外完成。
-- 性能基准（`criterion`）、内存/吞吐与 Node 版对比报告，多平台发布二进制。
-- **产出**：功能与性能对齐，进入可发布状态。
+- [x] `cache://`（Cache-Control）；其余 `*Type`/`*Charset`/`replaceStatus` 等已在 M6/增强中完成。
+- [x] Composer（请求重放/构造）。
+- [x] 性能基准（`criterion`，见 `crates/whistle-rules/benches/`）。
+- [x] 多平台发布二进制（`release.yml`）+ Dockerfile。
+- 已决定不实现（清单与理由）：
+  - `reqWrite*`/`resWrite*`：whistle 用于把报文写入磁盘做日志，本项目以抓包存储 + Web UI 取代；
+  - `responseFor`：依赖「引用另一条已抓请求的响应」，属高耦合特性，价值低；
+  - `trailers`：HTTP trailer 改写，使用面极窄；
+  - `cipher`/`sniCallback`：底层 TLS 细调，rustls 下非常用；
+  - `weinre`：whistle 内置的历史远程调试工具，已过时；
+  - `pac`：需内置 JS 引擎评估 PAC 脚本。
+- **产出**：功能覆盖日常调试主线，性能可度量，进入可发布状态。
 
 ---
 

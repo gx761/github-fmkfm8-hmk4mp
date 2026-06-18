@@ -10,7 +10,17 @@
 #   Body 改写 : reqBody resBody reqReplace resReplace *Prepend *Append html*/js*/css*
 #   状态/方法/查询 : replaceStatus  method  pathReplace  locationHref
 #   时延      : reqDelay  resDelay
+#   缓存      : cache
+#   上游路由  : proxy（上游 HTTP 代理）  socks（上游 SOCKS5 代理）
+#   插件      : plugin（外部 HTTP 插件）  plugin-vars（透传变量）
 #   其它      : urlParams  auth  reqCors  resCors
+
+# 13) 禁用缓存（响应注入 Cache-Control: no-store）
+nocache.example.com cache://no
+
+# 14) 经上游 SOCKS5 代理访问；交给插件应答并透传变量
+*.via-socks.example.com socks://127.0.0.1:1080
+mock-api.example.com plugin://myplugin plugin-vars://env=staging&debug=1
 
 # 1) 把某域名的流量转发到本地服务（host:// 覆盖上游目标，保留原 Host 头）
 www.example.com host://127.0.0.1:8080

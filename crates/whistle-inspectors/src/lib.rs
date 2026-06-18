@@ -192,6 +192,23 @@ pub fn apply_response(parts: &mut hyper::http::response::Parts, ops: &[Operation
     if let Some(url) = last_value(ops, "locationHref") {
         set_header(&mut parts.headers, LOCATION.as_str(), url);
     }
+    // cache://<no|no-cache|no-store|秒数|原样> → 设置 Cache-Control。
+    if let Some(v) = last_value(ops, "cache") {
+        let cc = match v {
+            "no" | "no-cache" | "no-store" | "0" => {
+                "no-cache, no-store, must-revalidate".to_string()
+            }
+            other => match other.parse::<u64>() {
+                Ok(secs) => format!("max-age={secs}"),
+                Err(_) => other.to_string(),
+            },
+        };
+        let no_store = cc.contains("no-store");
+        set_header(&mut parts.headers, "cache-control", &cc);
+        if no_store {
+            set_header(&mut parts.headers, "pragma", "no-cache");
+        }
+    }
     // delete://resHeaders.NAME → 删除响应头。
     for target in all_values(ops, "delete") {
         if let Some(name) = target.strip_prefix("resHeaders.") {
@@ -850,6 +867,22 @@ mod tests {
         let mut h2 = HeaderMap::new();
         apply_request_headers(&mut h2, &o);
         assert_eq!(h2[CONTENT_TYPE], "text/plain; charset=utf-8");
+    }
+
+    #[test]
+    fn cache_control_set() {
+        let o = ops("example.com cache://no", "http", "example.com", "/");
+        let mut parts = hyper::Response::new(()).into_parts().0;
+        apply_response(&mut parts, &o);
+        assert_eq!(
+            parts.headers["cache-control"],
+            "no-cache, no-store, must-revalidate"
+        );
+
+        let o2 = ops("example.com cache://60", "http", "example.com", "/");
+        let mut p2 = hyper::Response::new(()).into_parts().0;
+        apply_response(&mut p2, &o2);
+        assert_eq!(p2.headers["cache-control"], "max-age=60");
     }
 
     #[test]

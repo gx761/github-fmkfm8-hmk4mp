@@ -8,3 +8,10 @@ description = "whistle 规则 DSL：解析、匹配与求值"
 [dependencies]
 regex.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "rules_bench"
+harness = false
