@@ -59,7 +59,9 @@
 - [x] 网络模拟：`reqDelay`/`resDelay`（`reqSpeed`/`resSpeed` 待补）。
 - [x] 状态/方法/路径：`replaceStatus`、`method`、`urlParams`、`pathReplace`、`locationHref`。
 - [x] 头/CORS/鉴权：`headerReplace`、`forwardedFor`、`reqCors`/`resCors`、`auth`、`delete`。
-- 待补：`*Charset`、`reqSpeed`/`resSpeed`、规则注入类（`reqRules`/`resRules`/`includeFilter`/`excludeFilter`/`skip`）。
+- [x] 控制/过滤类：`ignore://`（剔除协议，`*` 全剔）、`includeFilter`/`excludeFilter`
+  （规则级门控，支持匹配模式与 `m:METHOD`）、`tpl`/`xtpl`（JSONP 模板）、`@include`（规则文件内联）。
+- 待补：`reqSpeed`/`resSpeed`、`reqRules`/`resRules`/`inherit`（动态规则注入）、`skip`/`enable`/`disable` 完整语义。
 - 端到端验证：resReplace+html(Pre/Ap)pend、resBody、replaceStatus、urlParams、auth、CORS 均生效。
 - **产出**：覆盖绝大多数日常调试场景（mock body、注入脚本、改状态/路径、延迟、CORS、鉴权）。
 

@@ -189,10 +189,12 @@ pub struct MatchInput {
     pub host: String,
     /// 请求路径。
     pub path: String,
+    /// 请求方法（用于 `m:METHOD` 过滤；默认空表示未知）。
+    pub method: String,
 }
 
 impl MatchInput {
-    /// 由各部分构造归一化输入。
+    /// 由各部分构造归一化输入（方法默认空，可通过 [`MatchInput::method`] 设置）。
     pub fn new(scheme: &str, host: &str, path: &str) -> Self {
         let host = strip_port(host).to_string();
         let path = if path.is_empty() {
@@ -204,7 +206,14 @@ impl MatchInput {
             url: format!("{scheme}://{host}{path}"),
             host,
             path,
+            method: String::new(),
         }
+    }
+
+    /// 链式设置请求方法。
+    pub fn with_method(mut self, method: &str) -> Self {
+        self.method = method.to_string();
+        self
     }
 
     fn host_path(&self) -> String {
@@ -258,15 +267,86 @@ impl RuleSet {
     }
 
     /// 对一个请求求值，按规则书写顺序收集所有命中规则的操作。
+    ///
+    /// 处理控制类协议：`includeFilter`/`excludeFilter` 在规则级别门控；
+    /// `ignore://<proto>` 从结果中剔除对应协议（`ignore://*` 剔除全部）。
+    /// 控制类协议本身不出现在返回的操作列表中。
     pub fn match_request(&self, input: &MatchInput) -> Vec<Operation> {
-        let mut ops = Vec::new();
+        let mut ops: Vec<Operation> = Vec::new();
         for rule in &self.rules {
-            if rule.pattern.matches(input) {
-                ops.extend(rule.operations.iter().cloned());
+            if !rule.pattern.matches(input) {
+                continue;
             }
+            if !rule_filters_pass(rule, input) {
+                continue;
+            }
+            ops.extend(rule.operations.iter().cloned());
         }
+        apply_ignores(&mut ops);
+        // 控制类协议不作为可执行操作返回。
+        ops.retain(|o| !is_control_protocol(&o.protocol));
         ops
     }
+}
+
+/// 控制流协议（不直接产生请求/响应改写）。
+fn is_control_protocol(proto: &str) -> bool {
+    matches!(
+        proto,
+        "ignore" | "includeFilter" | "excludeFilter" | "enable" | "disable"
+    )
+}
+
+/// 规则的 include/exclude 过滤是否放行该请求。
+///
+/// - 所有 `includeFilter` 必须命中；任一 `excludeFilter` 命中则跳过该规则。
+/// - 过滤值支持：`m:METHOD`（方法）以及普通匹配模式（域名/路径/通配/正则）。
+fn rule_filters_pass(rule: &Rule, input: &MatchInput) -> bool {
+    for op in &rule.operations {
+        match op.protocol.as_str() {
+            "includeFilter" => {
+                if !filter_matches(&op.value, input) {
+                    return false;
+                }
+            }
+            "excludeFilter" => {
+                if filter_matches(&op.value, input) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// 判断单个过滤值是否命中请求。
+fn filter_matches(value: &str, input: &MatchInput) -> bool {
+    if let Some(method) = value.strip_prefix("m:") {
+        return input.method.eq_ignore_ascii_case(method);
+    }
+    match Pattern::parse(value, 0) {
+        Ok(p) => p.matches(input),
+        Err(_) => false,
+    }
+}
+
+/// 应用 `ignore://`：剔除被忽略协议的操作。
+fn apply_ignores(ops: &mut Vec<Operation>) {
+    let ignored: Vec<String> = ops
+        .iter()
+        .filter(|o| o.protocol == "ignore")
+        .map(|o| o.value.clone())
+        .collect();
+    if ignored.is_empty() {
+        return;
+    }
+    if ignored.iter().any(|v| v == "*") {
+        // ignore://* 剔除所有可执行操作（保留控制协议，稍后统一清理）。
+        ops.retain(|o| is_control_protocol(&o.protocol));
+        return;
+    }
+    ops.retain(|o| !ignored.iter().any(|ig| ig == &o.protocol));
 }
 
 /// 判断 token 是否可作为「匹配模式」。
@@ -418,6 +498,43 @@ mod tests {
             .is_empty());
         assert!(rs
             .match_request(&input("http", "example.com", "/other"))
+            .is_empty());
+    }
+
+    #[test]
+    fn ignore_drops_protocol() {
+        let rs = RuleSet::parse("example.com host://1.2.3.4 ignore://host").unwrap();
+        let ops = rs.match_request(&input("http", "example.com", "/"));
+        // host 被 ignore 剔除，且控制协议本身不返回。
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn ignore_star_drops_all() {
+        let rs = RuleSet::parse("example.com host://1.2.3.4 reqHeaders://a=1 ignore://*").unwrap();
+        assert!(rs
+            .match_request(&input("http", "example.com", "/"))
+            .is_empty());
+    }
+
+    #[test]
+    fn exclude_filter_by_method() {
+        let rs = RuleSet::parse("example.com statusCode://418 excludeFilter://m:POST").unwrap();
+        let get = input("http", "example.com", "/").with_method("GET");
+        let post = input("http", "example.com", "/").with_method("POST");
+        assert!(!rs.match_request(&get).is_empty()); // GET 不被排除
+        assert!(rs.match_request(&post).is_empty()); // POST 被排除
+    }
+
+    #[test]
+    fn include_filter_by_pattern() {
+        let rs =
+            RuleSet::parse("example.com statusCode://503 includeFilter://example.com/api").unwrap();
+        assert!(rs
+            .match_request(&input("http", "example.com", "/other"))
+            .is_empty());
+        assert!(!rs
+            .match_request(&input("http", "example.com", "/api/x"))
             .is_empty());
     }
 

@@ -555,6 +555,38 @@ fn serve_file(path: &str) -> Response<ResBody> {
     }
 }
 
+/// `tpl`/`xtpl`：把本地文件作为 JSONP 模板返回。
+///
+/// `callback` 非空时包裹为 `callback(<内容>)`（application/javascript），
+/// 否则原样返回（application/json）。文件缺失则 404。
+pub fn serve_tpl(path: &str, callback: &str) -> Response<ResBody> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let (body, ct) = if callback.is_empty() {
+                (content, "application/json; charset=utf-8")
+            } else {
+                (
+                    format!("{callback}({content})"),
+                    "application/javascript; charset=utf-8",
+                )
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, ct)
+                .header(CONTENT_LENGTH, body.len())
+                .body(full_body(body.into_bytes()))
+                .expect("构造 tpl 响应不应失败")
+        }
+        Err(e) => {
+            debug!(path, %e, "tpl 规则：读取失败");
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(text_body(&format!("模板文件未找到: {path}")))
+                .expect("构造 404 不应失败")
+        }
+    }
+}
+
 /// `redirect`：302 跳转。
 fn redirect(target: &str) -> Response<ResBody> {
     match HeaderValue::from_str(target) {

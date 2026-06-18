@@ -40,7 +40,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
 - **正文抓取**：记录请求/响应正文预览（已知长度且不超限时缓冲，默认 512KB，否则保持流式）。
 - **Web 管理界面**：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）+ **Composer**（构造请求并经由本机代理回放，自动套用规则与抓包）。
 - **CLI**：`w2r start` / `stop` / `status`（基于 PID 文件）/ `ca export` / `ca path`；`start --config <file.toml>` 从 TOML 加载配置。
-- **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 40 个协议：
+- **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 44 个协议（含控制/过滤）：
 
   | 类别 | 协议 |
   | --- | --- |
@@ -50,10 +50,11 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
   | 状态 / 方法 / 路径 | `replaceStatus` `method` `urlParams` `pathReplace` `locationHref` |
   | 时延 / 缓存 | `reqDelay` `resDelay` `cache` |
   | 上游 / 插件 | `proxy` `socks` `plugin` `plugin-vars` |
+  | 模板 / 控制 | `tpl` `xtpl` `ignore` `includeFilter` `excludeFilter` + `@include` 行 |
 
-- **测试**：50 个单元/集成测试 + 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
+- **测试**：54 个单元/集成测试 + 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
 
-> 已决定不实现（详见路线图，附理由）：`pac`（需 JS 引擎）、`reqWrite*`/`resWrite*`、`responseFor`、`trailers`、`cipher`/`sniCallback`、`weinre`、`pipe`、上游侧 HTTP/2。
+> 已决定不实现（详见路线图，附理由）：`pac`（需 JS 引擎）、`reqWrite*`/`resWrite*`、`responseFor`、`trailers`、`cipher`/`sniCallback`、`weinre`、`pipe`、上游侧 HTTP/2；`reqRules`/`resRules`/`inherit`（动态规则注入）尚未实现。
 
 ## 工程结构
 

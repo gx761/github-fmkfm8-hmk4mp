@@ -163,6 +163,12 @@ async fn handle_http(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Resp
         return run_plugin(req, &url, &addr, &ops, traffic, store, ctx.body_limit).await;
     }
 
+    // tpl/xtpl：JSONP 模板 mock。
+    if let Some(tpl) = last_value(&ops, "tpl").or_else(|| last_value(&ops, "xtpl")) {
+        let cb = tpl_callback(uri.query().unwrap_or(""));
+        return finish_mock(store, traffic, apply::serve_tpl(tpl, &cb));
+    }
+
     let (up_host, up_port) = match apply::request_action(&ops, &host, port) {
         RequestAction::Mock(resp) => return finish_mock(store, traffic, resp),
         RequestAction::Forward { host, port } => (host, port),
@@ -450,6 +456,12 @@ async fn handle_https(
         return run_plugin(req, &url, &addr, &ops, traffic, &ctx.store, ctx.body_limit).await;
     }
 
+    // tpl/xtpl：JSONP 模板 mock。
+    if let Some(tpl) = last_value(&ops, "tpl").or_else(|| last_value(&ops, "xtpl")) {
+        let cb = tpl_callback(req.uri().query().unwrap_or(""));
+        return finish_mock(store, traffic, apply::serve_tpl(tpl, &cb));
+    }
+
     let (up_host, up_port) = match apply::request_action(&ops, host, port) {
         RequestAction::Mock(resp) => return finish_mock(store, traffic, resp),
         RequestAction::Forward { host, port } => (host, port),
@@ -616,7 +628,7 @@ fn eval_rules(
     path: &str,
     traffic: &mut Traffic,
 ) -> Vec<Operation> {
-    let input = MatchInput::new(scheme, host, path);
+    let input = MatchInput::new(scheme, host, path).with_method(&traffic.method);
     let ops = ctx.rules.read().unwrap().match_request(&input);
     traffic.rules = ops.iter().map(|o| o.raw.clone()).collect();
     ctx.store.upsert(traffic.clone());
@@ -946,6 +958,18 @@ fn split_authority(authority: &str, default: u16) -> (String, u16) {
         Some((h, p)) => (h.to_string(), p.parse().unwrap_or(default)),
         None => (authority.to_string(), default),
     }
+}
+
+/// 从 query 中取 JSONP 回调名（`callback`/`_callback`/`jsonpCallback`），无则空串。
+fn tpl_callback(query: &str) -> String {
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if matches!(k, "callback" | "_callback" | "jsonpCallback") {
+                return v.to_string();
+            }
+        }
+    }
+    String::new()
 }
 
 /// 若命中 `plugin://name` 且该 name 已在配置中映射，返回插件地址。

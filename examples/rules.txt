@@ -13,7 +13,17 @@
 #   缓存      : cache
 #   上游路由  : proxy（上游 HTTP 代理）  socks（上游 SOCKS5 代理）
 #   插件      : plugin（外部 HTTP 插件）  plugin-vars（透传变量）
+#   模板      : tpl  xtpl（JSONP）
+#   控制/过滤 : ignore  includeFilter  excludeFilter  @include（行首 @文件）
 #   其它      : urlParams  auth  reqCors  resCors
+
+# 15) JSONP 模板：?callback=cb 时包裹为 cb(<文件内容>)
+api.example.com/jsonp tpl:///tmp/data.json
+# 16) 仅对非 POST 请求返回 503；以及忽略某条规则里的 host
+maint.example.com statusCode://503 excludeFilter://m:POST
+legacy.example.com host://10.0.0.9 ignore://host
+# 17) 内联引入另一个规则文件（相对本文件目录）
+@more-rules.txt
 
 # 13) 禁用缓存（响应注入 Cache-Control: no-store）
 nocache.example.com cache://no

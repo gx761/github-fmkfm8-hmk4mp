@@ -46,16 +46,52 @@ pub fn data_dir(config: &Config) -> PathBuf {
 }
 
 /// 从配置加载规则集与其文本（无规则文件则返回空集与空串）。
+///
+/// 支持 `@<相对路径>` 行：内联展开另一个规则文件（相对当前文件目录，递归，防环）。
 pub fn load_rules(config: &Config) -> Result<(RuleSet, String)> {
     match &config.rules_file {
         Some(path) => {
-            let text = std::fs::read_to_string(path)?;
+            let mut seen = std::collections::HashSet::new();
+            let text = expand_includes(std::path::Path::new(path), &mut seen)?;
             let rules = RuleSet::parse(&text).map_err(|e| Error::Rules(e.to_string()))?;
             tracing::info!(path = %path, count = rules.len(), "已加载规则");
             Ok((rules, text))
         }
         None => Ok((RuleSet::default(), String::new())),
     }
+}
+
+/// 读取规则文件并递归展开 `@include` 行，返回合并后的文本。
+fn expand_includes(
+    path: &std::path::Path,
+    seen: &mut std::collections::HashSet<PathBuf>,
+) -> Result<String> {
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if !seen.insert(canon) {
+        return Ok(String::new()); // 防止 include 成环
+    }
+    let raw = std::fs::read_to_string(path)?;
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut out = String::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(rel) = trimmed.strip_prefix('@') {
+            let inc = dir.join(rel.trim());
+            match expand_includes(&inc, seen) {
+                Ok(t) => {
+                    out.push_str(&t);
+                    if !t.ends_with('\n') {
+                        out.push('\n');
+                    }
+                }
+                Err(e) => tracing::warn!(path = %inc.display(), %e, "include 规则文件失败，已跳过"),
+            }
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    Ok(out)
 }
 
 /// 加载或生成根 CA。
