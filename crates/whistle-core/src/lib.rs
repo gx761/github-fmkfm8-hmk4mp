@@ -115,6 +115,7 @@ pub async fn start(config: Config) -> Result<()> {
             rules: rules.clone(),
             rules_text: Arc::new(RwLock::new(rules_text)),
             proxy_addr: format!("{}:{}", config.host, config.port),
+            ui_mode: config.ui_mode.clone(),
         };
         let ui_addr = config.ui_addr();
         match ui_addr.parse::<std::net::SocketAddr>() {

@@ -42,6 +42,8 @@ pub struct Config {
     pub ui_port: u16,
     /// 是否启用 Web 管理界面。
     pub ui_enabled: bool,
+    /// UI 模式：`native`（内置精简界面）或 `whistle`（内嵌 whistle 原生前端）。
+    pub ui_mode: String,
     /// 插件映射：`plugin://<name>` → 插件 HTTP 服务地址 `host:port`。
     pub plugins: HashMap<String, String>,
 }
@@ -58,6 +60,7 @@ impl Default for Config {
             decrypt_https: true,
             ui_port: DEFAULT_UI_PORT,
             ui_enabled: true,
+            ui_mode: "native".to_string(),
             plugins: HashMap::new(),
         }
     }

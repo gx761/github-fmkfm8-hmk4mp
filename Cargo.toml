@@ -38,6 +38,7 @@ criterion = "0.5"
 
 # Web 管理面
 axum = { version = "0.8", features = ["ws"] }
+include_dir = "0.7"
 
 # TLS / 证书（HTTPS MITM）
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }

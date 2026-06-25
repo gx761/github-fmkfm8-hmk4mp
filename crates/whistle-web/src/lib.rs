@@ -3,6 +3,8 @@
 //! 对应 whistle 的 `lib/service` 与 Web UI 后端。共享代理内核的抓包存储与规则，
 //! 支持在线编辑规则并热生效（无需重启）。
 
+mod whistle_compat;
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -30,6 +32,8 @@ pub struct WebState {
     pub rules_text: Arc<RwLock<String>>,
     /// 代理监听地址 `host:port`，Composer 通过它回放请求（从而自动套用规则与抓包）。
     pub proxy_addr: String,
+    /// UI 模式：`native`（内置精简界面）/ `whistle`（内嵌 whistle 原生前端 + 兼容后端）。
+    pub ui_mode: String,
 }
 
 /// 启动 Web 管理面，监听 `addr`。
@@ -42,6 +46,10 @@ pub async fn serve(addr: std::net::SocketAddr, state: WebState) -> std::io::Resu
 
 /// 构建路由（导出以便测试）。
 pub fn router(state: WebState) -> Router {
+    if state.ui_mode == "whistle" {
+        // 内嵌 whistle 原生前端 + 兼容 cgi-bin 后端（实验性）。
+        return whistle_compat::whistle_router(state);
+    }
     Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
         .route("/api/info", get(info_handler))
@@ -223,6 +231,7 @@ mod tests {
             rules: Arc::new(RwLock::new(RuleSet::default())),
             rules_text: Arc::new(RwLock::new(String::new())),
             proxy_addr: "127.0.0.1:0".to_string(),
+            ui_mode: "native".to_string(),
         }
     }
 

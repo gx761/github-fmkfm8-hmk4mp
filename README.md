@@ -14,6 +14,10 @@ cargo build --workspace
 cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
 #   打开 http://127.0.0.1:8900/ 查看实时抓包、编辑规则（保存即生效）
 
+# 可选：内嵌 whistle 原生前端（实验性，需在浏览器联调）
+cargo run --bin w2r -- start --ui whistle
+#   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层
+
 # 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
 # 抓 HTTPS：先导出并信任根证书
 cargo run --bin w2r -- ca export whistle-rs-ca.pem
@@ -38,7 +42,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
 - **SOCKS5 入站**：与 HTTP 代理共用端口；`curl --socks5-hostname` 的 HTTPS 走 MITM、其余盲隧道。
 - **插件**：`plugin://<name>` 把请求 POST 给外部插件 HTTP 服务，按其 JSON 返回编程式应答（示例 `examples/plugin_example.py`）。
 - **正文抓取**：记录请求/响应正文预览（已知长度且不超限时缓冲，默认 512KB，否则保持流式）。
-- **Web 管理界面**：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）+ **Composer**（构造请求并经由本机代理回放，自动套用规则与抓包）。
+- **Web 管理界面**：①内置精简界面（默认）：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）+ **Composer**；②`--ui whistle`（实验性）：内嵌 whistle 原生前端 + whistle 兼容 `/cgi-bin` 后端适配层，复用 whistle 真实 UI。
 - **CLI**：`w2r start` / `stop` / `status`（基于 PID 文件）/ `ca export` / `ca path`；`start --config <file.toml>` 从 TOML 加载配置。
 - **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 44 个协议（含控制/过滤）：
 

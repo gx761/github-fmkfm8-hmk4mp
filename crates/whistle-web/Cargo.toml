@@ -9,6 +9,7 @@ description = "axum 管理面 API + UI 托管 + WebSocket 推送"
 whistle-capture.workspace = true
 whistle-rules.workspace = true
 axum.workspace = true
+include_dir.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

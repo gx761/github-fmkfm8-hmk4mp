@@ -46,6 +46,9 @@ enum Command {
         /// 不启动 Web 管理界面。
         #[arg(long)]
         no_ui: bool,
+        /// UI 模式：native（默认精简界面）或 whistle（内嵌 whistle 原生前端，实验性）。
+        #[arg(long, default_value = "native")]
+        ui: String,
     },
     /// 停止代理服务。
     Stop {
@@ -96,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
             no_decrypt,
             ui_port,
             no_ui,
+            ui,
         } => {
             // 提供 --config 时优先使用配置文件，忽略其它 start 参数。
             let config = match config_path {
@@ -112,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                     decrypt_https: !no_decrypt,
                     ui_port,
                     ui_enabled: !no_ui,
+                    ui_mode: ui,
                     ..Config::default()
                 },
             };
