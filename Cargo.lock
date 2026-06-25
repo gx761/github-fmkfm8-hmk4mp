@@ -1864,11 +1864,14 @@ name = "whistle-web"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "form_urlencoded",
  "futures-util",
+ "http-body-util",
  "include_dir",
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tracing",
  "whistle-capture",
  "whistle-rules",

@@ -17,9 +17,9 @@ cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
 # 可选：对客户端启用 HTTP/2（默认关闭，以兼容 WebSocket 等）
 cargo run --bin w2r -- start --http2
 
-# 可选：内嵌 whistle 原生前端（Network 面板可用：无报错、实时显示抓包；规则/值编辑暂只读）
+# 可选：内嵌 whistle 原生前端（Network 抓包 + 规则/Values 在线编辑均可用，编辑即热生效并持久化）
 cargo run --bin w2r -- start --ui whistle
-#   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层
+#   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层（规则保存到 ~/.whistle-rs/whistle-ui.json）
 
 # 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
 # 抓 HTTPS：先导出并信任根证书
@@ -45,7 +45,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
 - **SOCKS5 入站**：与 HTTP 代理共用端口；`curl --socks5-hostname` 的 HTTPS 走 MITM、其余盲隧道。
 - **插件**：`plugin://<name>` 把请求 POST 给外部插件 HTTP 服务，按其 JSON 返回编程式应答（示例 `examples/plugin_example.py`）。
 - **正文抓取**：记录请求/响应正文预览（已知长度且不超限时缓冲，默认 512KB，否则保持流式）。
-- **Web 管理界面**：①内置精简界面（默认）：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）+ **Composer**；②`--ui whistle`（实验性）：内嵌 whistle 原生前端 + whistle 兼容 `/cgi-bin` 后端适配层，复用 whistle 真实 UI。
+- **Web 管理界面**：①内置精简界面（默认）：实时抓包列表 + 请求详情（头 / 正文 / WebSocket 消息 / 命中规则）+ 在线规则编辑（保存即热生效）+ **Composer**；②`--ui whistle`：内嵌 whistle 原生前端 + whistle 兼容 `/cgi-bin` 后端适配层，复用 whistle 真实 UI，**Network 抓包 + 规则/Values 完整增删改查**（新建/编辑/选中/重命名/删除/回收站/单多选/默认规则/总开关，编辑即热生效并持久化到 `whistle-ui.json`）。
 - **CLI**：`w2r start` / `stop` / `status`（基于 PID 文件）/ `ca export` / `ca path`；`start --config <file.toml>` 从 TOML 加载配置。
 - **规则引擎**：正则 / 通配符 / URL 前缀 / 域名+路径 匹配；约 44 个协议（含控制/过滤）：
 
@@ -59,7 +59,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
   | 上游 / 插件 | `proxy` `socks` `plugin` `plugin-vars` |
   | 模板 / 控制 | `tpl` `xtpl` `ignore` `includeFilter` `excludeFilter` + `@include` 行 |
 
-- **测试**：54 个单元/集成测试 + 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
+- **测试**：66 个单元/集成测试（含 whistle `/cgi-bin` 规则编辑端到端测试）+ 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
 
 > 已决定不实现（详见路线图，附理由）：`pac`（需 JS 引擎）、`reqWrite*`/`resWrite*`、`responseFor`、`trailers`、`cipher`/`sniCallback`、`weinre`、`pipe`、上游侧 HTTP/2；`reqRules`/`resRules`/`inherit`（动态规则注入）尚未实现。
 

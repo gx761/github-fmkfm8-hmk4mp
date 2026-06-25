@@ -34,7 +34,7 @@ impl ListItem {
 }
 
 /// whistle UI 的全部可编辑状态。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WhistleData {
     /// 默认规则文本（始终参与，除非被禁用）。
@@ -55,22 +55,6 @@ pub struct WhistleData {
     pub rules_recycle: Vec<ListItem>,
     /// Values 回收站。
     pub values_recycle: Vec<ListItem>,
-}
-
-impl Default for WhistleData {
-    fn default() -> Self {
-        Self {
-            default_rules: String::new(),
-            default_disabled: false,
-            disabled_all_rules: false,
-            allow_multiple_choice: false,
-            back_rules_first: false,
-            rules: Vec::new(),
-            values: Vec::new(),
-            rules_recycle: Vec::new(),
-            values_recycle: Vec::new(),
-        }
-    }
 }
 
 impl WhistleData {
@@ -219,6 +203,25 @@ impl WhistleData {
         move_to(&mut self.rules, name, to)
     }
 
+    /// 把规则分组移到列表顶部。
+    pub fn move_rule_top(&mut self, name: &str) -> bool {
+        move_top(&mut self.rules, name)
+    }
+
+    /// 选中的规则分组名（按列表顺序）。
+    pub fn selected_names(&self) -> Vec<String> {
+        self.rules
+            .iter()
+            .filter(|r| r.selected)
+            .map(|r| r.name.clone())
+            .collect()
+    }
+
+    /// 从规则回收站移除一项（还原后调用）。
+    pub fn drop_recycled_rule(&mut self, name: &str) {
+        self.rules_recycle.retain(|x| x.name != name);
+    }
+
     // ---- Values 增删改 ----
 
     fn value_idx(&self, name: &str) -> Option<usize> {
@@ -271,6 +274,28 @@ impl WhistleData {
     /// 移动 Value 排序。
     pub fn move_value_to(&mut self, name: &str, to: &str) -> bool {
         move_to(&mut self.values, name, to)
+    }
+
+    /// 把 Value 移到列表顶部。
+    pub fn move_value_top(&mut self, name: &str) -> bool {
+        move_top(&mut self.values, name)
+    }
+
+    /// 从 Values 回收站移除一项。
+    pub fn drop_recycled_value(&mut self, name: &str) {
+        self.values_recycle.retain(|x| x.name != name);
+    }
+}
+
+/// 把 `list` 中名为 `name` 的项移到顶部。
+fn move_top(list: &mut Vec<ListItem>, name: &str) -> bool {
+    match list.iter().position(|x| x.name == name) {
+        Some(i) => {
+            let item = list.remove(i);
+            list.insert(0, item);
+            true
+        }
+        None => false,
     }
 }
 
