@@ -10,10 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair, KeyUsagePurpose,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ClientConfig, ServerConfig};
+use time::{Duration, OffsetDateTime};
 use tracing::info;
 
 /// TLS 相关错误。
@@ -103,6 +105,16 @@ impl CertAuthority {
         params
             .distinguished_name
             .push(DnType::CommonName, host.to_string());
+        // 浏览器要求服务端证书：有效期 ≤ 398 天、CA:FALSE、含 serverAuth EKU、SAN。
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now - Duration::days(1);
+        params.not_after = now + Duration::days(397);
+        params.is_ca = IsCa::ExplicitNoCa;
+        params.key_usages = vec![
+            KeyUsagePurpose::DigitalSignature,
+            KeyUsagePurpose::KeyEncipherment,
+        ];
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         let leaf_key = KeyPair::generate()?;
         let leaf_cert = params.signed_by(&leaf_key, &self.issuer_cert, &self.issuer_key)?;
 
@@ -135,6 +147,10 @@ fn generate_ca() -> Result<(KeyPair, rcgen::Certificate)> {
         KeyUsagePurpose::CrlSign,
         KeyUsagePurpose::DigitalSignature,
     ];
+    // 根 CA 有效期取 10 年（根证书不受 398 天限制）。
+    let now = OffsetDateTime::now_utc();
+    params.not_before = now - Duration::days(1);
+    params.not_after = now + Duration::days(3650);
     let key = KeyPair::generate()?;
     let cert = params.self_signed(&key)?;
     Ok((key, cert))

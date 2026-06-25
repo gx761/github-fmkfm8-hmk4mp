@@ -45,6 +45,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-pki-types = "1"
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring", "x509-parser"] }
+time = { version = "0.3", default-features = false, features = ["std"] }
 
 # 内部 crate（路径依赖）
 whistle-core = { path = "crates/whistle-core" }

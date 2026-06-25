@@ -9,5 +9,6 @@ description = "CA 生成与动态证书签发、rustls 集成（HTTPS MITM）"
 rustls.workspace = true
 rustls-pki-types.workspace = true
 rcgen.workspace = true
+time.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
