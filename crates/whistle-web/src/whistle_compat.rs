@@ -4,9 +4,9 @@
 //! whistle 前端所需的 `/cgi-bin/*` 后端协议的核心子集，把 whistle-rs 的抓包/规则
 //! 数据映射成 whistle 的 session/规则 结构，让其原生 UI 跑起来。
 //!
-//! 状态：**iteration 1** —— 已实现 boot（`init`）与 Network 轮询（`get-data`）等核心端点；
-//! 其余 cgi-bin 端点先返回 `{ec:0}` 占位。Rules/Values 等面板的完整保真度仍需在真实
-//! 浏览器中联调。
+//! 状态：whistle 原生 UI 已能**无报错启动**，**Network 面板实时显示抓包**（真实浏览器
+//! 验证：0 个 Uncaught 错误）。规则/值等编辑类操作目前为只读/占位（其余 cgi-bin 端点
+//! 返回 `{ec:0}`）。
 //!
 //! 协议要点（逆向自 whistle 2.10.4 `biz/webui`）：
 //! - 前端启动调 `cgi-bin/init`；之后以游标 `startTime` 轮询 `cgi-bin/get-data`，
@@ -44,6 +44,7 @@ pub fn whistle_router(state: WebState) -> Router {
         .route("/cgi-bin/status", any(status))
         .route("/cgi-bin/rules/list", any(rules_list))
         .route("/cgi-bin/values/list", any(values_list))
+        .route("/cgi-bin/log/get", any(log_get))
         // 其余静态资源与未实现的 cgi-bin 走兜底。
         .route("/{*path}", get(static_or_stub).post(static_or_stub))
         .with_state(state)
@@ -158,6 +159,16 @@ async fn get_data(
 
     let new_ids: Vec<String> = news.iter().map(|t| session_id(t)).collect();
     let last_id = new_ids.last().cloned().or_else(|| end_id.clone());
+    // whistle 前端会读取 n.ids.length（请求的具体 id 回显）；缺失会导致整段网络处理崩溃。
+    let req_ids: Vec<String> = q
+        .get("ids")
+        .map(|s| {
+            s.split(',')
+                .filter(|x| !x.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
 
     // WebSocket 帧（当前选中会话）。
     let frames = q
@@ -165,6 +176,20 @@ async fn get_data(
         .and_then(|cur| frames_for(&all, cur))
         .unwrap_or_else(|| Value::Array(vec![]));
 
+    // whistle 的 get-data 顶层是元信息，网络数据嵌套在 `data`（= proxy.getData 的结果）。
+    let network = json!({
+        "ids": req_ids,
+        "newIds": new_ids,
+        "data": Value::Object(data),
+        "lastId": last_id,
+        "endId": end_id,
+        "hasNew": false,
+        "frames": frames,
+        "lastFrameId": Value::Null,
+        "tunnelIps": {},
+        "socketStatus": Value::Null,
+        "composerTime": Value::Null,
+    });
     axum::Json(json!({
         "ec": 0,
         "wName": "whistle-rs",
@@ -187,16 +212,7 @@ async fn get_data(
         "enableHttp2": true,
         "defaultRulesIsDisabled": false,
         "list": [],
-        // 网络数据包裹（与 whistle proxy.getData 对齐）。
-        "newIds": new_ids,
-        "data": Value::Object(data),
-        "lastId": last_id,
-        "endId": end_id,
-        "hasNew": false,
-        "frames": frames,
-        "lastFrameId": Value::Null,
-        "tunnelIps": {},
-        "socketStatus": Value::Null,
+        "data": network,
     }))
 }
 
@@ -228,10 +244,27 @@ async fn values_list() -> axum::Json<Value> {
     axum::Json(json!({ "ec": 0, "values": values_payload() }))
 }
 
+/// `cgi-bin/log/get`：服务端日志轮询（前端读取 `log` 数组）。
+async fn log_get() -> axum::Json<Value> {
+    axum::Json(json!({ "ec": 0, "log": [], "ids": [], "newIds": [] }))
+}
+
 // ---- 映射辅助 ----
 
 fn server_obj() -> Value {
-    json!({ "name": "whistle-rs", "version": WVERSION, "nodeVersion": "rust" })
+    // 前端 updateServerInfo 会读取 ipv4/ipv6（数组）等字段，缺失会崩溃。
+    json!({
+        "name": "whistle-rs",
+        "version": WVERSION,
+        "nodeVersion": "rust",
+        "whistleId": "whistle-rs",
+        "pid": 0,
+        "host": "127.0.0.1",
+        "ipv4": [],
+        "ipv6": [],
+        "ipv6Only": false,
+        "username": "whistle-rs",
+    })
 }
 
 /// 规则面板载荷（对齐 whistle getRules 的字段集）。
