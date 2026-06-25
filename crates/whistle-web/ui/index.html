@@ -6,214 +6,326 @@
 <title>whistle-rs</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color: #1f2328; background: #f6f8fa; }
-  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #24292f; color: #fff; }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  header .meta { font-size: 12px; opacity: .8; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", Roboto, "PingFang SC", sans-serif; color: #1f2328; background: #f6f8fa; }
+  header { display: flex; align-items: center; gap: 14px; padding: 0 14px; height: 44px; background: #1f6feb; background: linear-gradient(90deg,#0969da,#1f6feb); color: #fff; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header .stats { font-size: 12px; opacity: .9; }
   header .spacer { flex: 1; }
-  button { font: inherit; padding: 4px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; cursor: pointer; }
-  button:hover { background: #f3f4f6; }
-  .layout { display: flex; height: calc(100vh - 41px); }
-  .left { flex: 1; overflow: auto; }
-  .right { width: 0; transition: width .15s; overflow: auto; background: #fff; border-left: 1px solid #d0d7de; }
-  .right.open { width: 44%; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eaeef2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
-  th { position: sticky; top: 0; background: #f6f8fa; font-weight: 600; z-index: 1; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: rgba(255,255,255,.12); color: #fff; border: none; padding: 5px 14px; border-radius: 6px; cursor: pointer; font: inherit; }
+  nav button.active { background: #fff; color: #0969da; font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #e6a100; display: inline-block; }
+  .view { display: none; height: calc(100vh - 44px); }
+  .view.active { display: flex; }
+  /* Network */
+  .net-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #d0d7de; background: #fff; }
+  .toolbar input, .toolbar select, .field { font: inherit; padding: 4px 8px; border: 1px solid #d0d7de; border-radius: 6px; background:#fff; }
+  .toolbar input.search { flex: 1; min-width: 120px; }
+  .toolbar .count { color: #57606a; font-size: 12px; }
+  button.btn { font: inherit; padding: 4px 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; cursor: pointer; }
+  button.btn:hover { background: #f3f4f6; }
+  button.btn.on { background: #fff8c5; border-color: #d4a72c; }
+  .tablewrap { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #eaeef2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  th { position: sticky; top: 0; background: #f6f8fa; font-weight: 600; z-index: 1; font-size: 12px; color:#57606a; }
+  td.url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   tr.row { cursor: pointer; }
   tr.row:hover { background: #f3f4f6; }
   tr.sel { background: #ddf4ff !important; }
-  .pill { padding: 0 6px; border-radius: 10px; font-size: 11px; color: #fff; }
-  .s2 { background: #1a7f37; } .s3 { background: #9a6700; } .s4 { background: #cf222e; } .s5 { background: #cf222e; } .sx { background: #6e7781; }
-  .proto { font-size: 11px; color: #57606a; }
-  .rules { color: #8250df; font-size: 11px; }
-  .panel { padding: 12px; }
-  .panel h3 { margin: 12px 0 6px; font-size: 13px; }
-  pre { background: #f6f8fa; padding: 8px; border-radius: 6px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; }
-  .tabs { display: flex; gap: 6px; padding: 8px 12px 0; }
-  .tabs button.active { background: #ddf4ff; border-color: #54aeff; }
-  .pane { display: none; } .pane.active { display: block; }
-  textarea { width: 100%; height: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; }
+  .pill { display:inline-block; min-width: 30px; text-align:center; padding: 0 6px; border-radius: 10px; font-size: 11px; color: #fff; }
+  .s1{background:#0969da}.s2{background:#1a7f37}.s3{background:#9a6700}.s4{background:#cf222e}.s5{background:#bc4c00}.sx{background:#8c959f}
+  .proto-http{color:#57606a}.proto-https{color:#1a7f37}.proto-ws,.proto-wss{color:#8250df}.proto-tunnel{color:#9a6700}
+  .has-rules { color: #8250df; }
+  /* detail drawer */
+  .drawer { width: 0; transition: width .12s ease; overflow: hidden; background: #fff; border-left: 1px solid #d0d7de; display: flex; flex-direction: column; }
+  .drawer.open { width: 46%; min-width: 380px; }
+  .drawer .dhead { display:flex; align-items:center; gap:6px; padding: 6px 10px; border-bottom: 1px solid #d0d7de; }
+  .subtabs { display: flex; gap: 4px; flex:1; flex-wrap: wrap; }
+  .subtabs button { font: inherit; font-size:12px; padding: 3px 9px; border: 1px solid transparent; border-radius: 6px; background: #f6f8fa; cursor: pointer; }
+  .subtabs button.active { background: #ddf4ff; border-color: #54aeff; }
+  .dbody { flex: 1; overflow: auto; padding: 10px 12px; }
+  .dbody h4 { margin: 10px 0 4px; font-size: 12px; color:#57606a; text-transform: uppercase; letter-spacing:.4px; }
+  pre { background: #f6f8fa; padding: 8px; border-radius: 6px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .kv { display:grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size:12px; }
+  .kv .k { color:#57606a; }
+  /* rules / composer */
+  .pad { padding: 14px; flex: 1; overflow: auto; }
+  textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; }
+  .rules-editor { height: calc(100vh - 140px); }
+  .row-actions { margin-top: 8px; display:flex; align-items:center; gap:10px; }
   .ok { color: #1a7f37; } .err { color: #cf222e; }
-  .empty { padding: 24px; color: #6e7781; }
+  .empty { padding: 40px; text-align:center; color: #8c959f; }
+  .muted { color:#8c959f; }
+  .wsmsg { display:flex; gap:8px; padding:3px 0; border-bottom:1px dashed #eaeef2; }
+  .wsmsg .dir { font-weight:600; white-space:nowrap; }
+  .wsmsg .send { color:#0969da; } .wsmsg .recv { color:#1a7f37; }
+  label.inline { font-size:12px; color:#57606a; display:flex; align-items:center; gap:4px; }
 </style>
 </head>
 <body>
 <header>
   <h1>whistle-rs</h1>
-  <span class="meta" id="meta">连接中…</span>
+  <span class="stats" id="stats">连接中…</span>
   <span class="spacer"></span>
-  <button id="btn-rules">规则</button>
-  <button id="btn-compose">Composer</button>
-  <button id="btn-clear">清空</button>
-  <span class="meta" id="wsstate">●</span>
+  <nav>
+    <button data-view="network" class="active">Network</button>
+    <button data-view="rules">Rules</button>
+    <button data-view="composer">Composer</button>
+  </nav>
+  <span class="dot" id="wsdot" title="实时连接"></span>
 </header>
-<div class="layout">
-  <div class="left">
-    <table>
-      <thead><tr><th>#</th><th>方法</th><th>状态</th><th>协议</th><th>Host</th><th>URL</th><th>耗时</th><th>规则</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-    <div class="empty" id="empty">暂无流量。把浏览器/系统 HTTP 代理指向本机代理端口后即可抓包。</div>
+
+<!-- NETWORK -->
+<div class="view active" id="view-network">
+  <div class="net-main">
+    <div class="toolbar">
+      <input class="search" id="filter" placeholder="过滤：URL / Host / 方法 / 状态码 / 规则…" />
+      <select id="protofilter" class="field">
+        <option value="">全部协议</option>
+        <option value="http">http</option>
+        <option value="https">https</option>
+        <option value="ws">ws</option>
+        <option value="wss">wss</option>
+        <option value="tunnel">tunnel</option>
+      </select>
+      <button class="btn" id="pause">⏸ 暂停</button>
+      <button class="btn" id="clear">🗑 清空</button>
+      <span class="count" id="count">0</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <colgroup>
+          <col style="width:52px"><col style="width:58px"><col style="width:64px"><col style="width:60px">
+          <col style="width:170px"><col><col style="width:70px"><col style="width:70px"><col style="width:66px"><col style="width:120px">
+        </colgroup>
+        <thead><tr>
+          <th>#</th><th>状态</th><th>方法</th><th>协议</th><th>Host</th><th>URL</th><th>类型</th><th>大小</th><th>耗时</th><th>规则</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty">暂无流量。把系统/浏览器代理指向 <b>127.0.0.1:8899</b> 后即可抓包。<br/>抓 HTTPS 请先 <code>w2r ca export</code> 并信任证书。</div>
+    </div>
   </div>
-  <div class="right" id="right">
-    <div class="tabs">
-      <button data-pane="detail" class="active">详情</button>
-      <button data-pane="rules">规则</button>
-      <button data-pane="compose">Composer</button>
-      <button class="spacer" style="border:none;background:none;cursor:default;flex:1"></button>
-      <button id="btn-close">×</button>
-    </div>
-    <div class="pane active" id="pane-detail"><div class="panel" id="detail"></div></div>
-    <div class="pane" id="pane-rules">
-      <div class="panel">
-        <p>编辑规则（保存即生效，无需重启）：</p>
-        <textarea id="rules-text" spellcheck="false"></textarea>
-        <div style="margin-top:8px"><button id="btn-save">保存规则</button> <span id="rules-msg"></span></div>
+  <div class="drawer" id="drawer">
+    <div class="dhead">
+      <div class="subtabs" id="subtabs">
+        <button data-sub="overview" class="active">概览</button>
+        <button data-sub="request">请求</button>
+        <button data-sub="response">响应</button>
+        <button data-sub="ws">WebSocket</button>
       </div>
+      <button class="btn" id="dclose">×</button>
     </div>
-    <div class="pane" id="pane-compose">
-      <div class="panel">
-        <p>构造并回放请求（经由本机代理，自动套用规则并产生抓包）：</p>
-        <div style="display:flex;gap:6px;margin-bottom:6px">
-          <select id="cmp-method" style="font:inherit;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px">
-            <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option><option>HEAD</option>
-          </select>
-          <input id="cmp-url" placeholder="http://host/path" style="flex:1;font:inherit;padding:4px 8px;border:1px solid #d0d7de;border-radius:6px" />
-        </div>
-        <h3>请求头（每行 Name: Value）</h3>
-        <textarea id="cmp-headers" spellcheck="false" style="height:120px"></textarea>
-        <h3>请求体</h3>
-        <textarea id="cmp-body" spellcheck="false" style="height:120px"></textarea>
-        <div style="margin-top:8px"><button id="btn-send">发送</button> <span id="cmp-msg"></span></div>
-        <div id="cmp-resp"></div>
-      </div>
+    <div class="dbody" id="dbody"></div>
+  </div>
+</div>
+
+<!-- RULES -->
+<div class="view" id="view-rules">
+  <div class="pad">
+    <h3 style="margin:0 0 8px">规则编辑（保存即生效，无需重启）</h3>
+    <textarea id="rules-text" class="rules-editor" spellcheck="false"></textarea>
+    <div class="row-actions">
+      <button class="btn" id="rules-save">保存规则</button>
+      <button class="btn" id="rules-reload">重载</button>
+      <span id="rules-msg" class="muted"></span>
     </div>
   </div>
 </div>
+
+<!-- COMPOSER -->
+<div class="view" id="view-composer">
+  <div class="pad" style="max-width:900px">
+    <h3 style="margin:0 0 8px">Composer · 构造并回放请求（经本机代理，自动套用规则与抓包）</h3>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <select id="cmp-method" class="field">
+        <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option><option>HEAD</option><option>OPTIONS</option>
+      </select>
+      <input id="cmp-url" class="field" style="flex:1" placeholder="http://host/path （当前仅支持 http://）" />
+      <button class="btn" id="cmp-send">发送</button>
+      <span id="cmp-msg" class="muted"></span>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><h4 class="muted">请求头（每行 Name: Value）</h4><textarea id="cmp-headers" style="height:160px" spellcheck="false"></textarea></div>
+      <div style="flex:1"><h4 class="muted">请求体</h4><textarea id="cmp-body" style="height:160px" spellcheck="false"></textarea></div>
+    </div>
+    <div id="cmp-resp" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
-const rowsEl = $('#rows'), emptyEl = $('#empty');
-const byId = new Map();
-let selected = null;
+const $$ = s => document.querySelectorAll(s);
+const esc = x => (x==null?'':String(x)).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const items = new Map();      // id -> traffic
+let selected = null, paused = false, sub = 'overview';
 
-function statusClass(s){ if(!s) return 'sx'; return 's'+String(s)[0]; }
-function esc(x){ return (x==null?'':String(x)).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-
+function statusClass(s){ return s ? 's'+String(s)[0] : 'sx'; }
+function fmtSize(t){
+  let n = t.res_body_size || 0;
+  if(!n){ const cl=(t.res_headers||[]).find(h=>h.name.toLowerCase()==='content-length'); if(cl) n=+cl.value||0; }
+  if(!n) return '';
+  if(n<1024) return n+' B';
+  if(n<1048576) return (n/1024).toFixed(1)+' KB';
+  return (n/1048576).toFixed(2)+' MB';
+}
+function ctype(t){
+  const h=(t.res_headers||[]).find(h=>h.name.toLowerCase()==='content-type');
+  if(!h) return '';
+  let v=h.value.split(';')[0].trim();
+  const m={'text/html':'html','application/json':'json','application/javascript':'js','text/javascript':'js','text/css':'css','application/xml':'xml','text/plain':'text'};
+  if(m[v]) return m[v];
+  if(v.startsWith('image/')) return v.slice(6);
+  if(v.startsWith('text/')) return v.slice(5);
+  return v.split('/').pop();
+}
+function statusCell(t){
+  if(t.status) return `<span class="pill ${statusClass(t.status)}">${t.status}</span>`;
+  if(t.error) return `<span class="pill s5" title="${esc(t.error)}">ERR</span>`;
+  return '<span class="muted">…</span>';
+}
+function matchFilter(t){
+  const pf=$('#protofilter').value;
+  if(pf && t.protocol!==pf) return false;
+  const q=$('#filter').value.trim().toLowerCase();
+  if(!q) return true;
+  return (t.url+' '+t.host+' '+t.method+' '+(t.status||'')+' '+(t.rules||[]).join(' ')).toLowerCase().includes(q);
+}
+function rowHtml(t){
+  return `<td>${t.id}</td><td>${statusCell(t)}</td><td>${esc(t.method)}</td>`+
+    `<td class="proto-${esc(t.protocol)}">${esc(t.protocol)}</td>`+
+    `<td title="${esc(t.host)}">${esc(t.host)}</td>`+
+    `<td class="url" title="${esc(t.url)}">${esc(t.url)}</td>`+
+    `<td>${esc(ctype(t))}</td><td>${fmtSize(t)}</td>`+
+    `<td>${t.duration_ms==null?'…':t.duration_ms+'ms'}</td>`+
+    `<td class="has-rules" title="${esc((t.rules||[]).join('\n'))}">${esc((t.rules||[]).join(' '))}</td>`;
+}
 function upsert(t){
-  byId.set(t.id, t);
-  let tr = document.getElementById('t'+t.id);
+  items.set(t.id, t);
+  if(paused) return;
+  let tr=document.getElementById('t'+t.id);
   if(!tr){
-    tr = document.createElement('tr');
-    tr.id = 't'+t.id; tr.className = 'row';
-    tr.onclick = () => showDetail(t.id);
-    rowsEl.prepend(tr);
+    if(!matchFilter(t)) return;
+    tr=document.createElement('tr'); tr.id='t'+t.id; tr.className='row';
+    tr.onclick=()=>select(t.id);
+    $('#rows').prepend(tr);
   }
-  const dur = t.duration_ms==null ? '…' : t.duration_ms+'ms';
-  const st = t.status ? `<span class="pill ${statusClass(t.status)}">${t.status}</span>` : (t.error?`<span class="pill s5">ERR</span>`:'…');
-  tr.innerHTML = `<td>${t.id}</td><td>${esc(t.method)}</td><td>${st}</td>`+
-    `<td class="proto">${esc(t.protocol)}</td><td>${esc(t.host)}</td><td title="${esc(t.url)}">${esc(t.url)}</td>`+
-    `<td>${dur}</td><td class="rules">${esc((t.rules||[]).join(' '))}</td>`;
-  if(selected===t.id){ tr.classList.add('sel'); refreshDetail(t); }
-  emptyEl.style.display = byId.size ? 'none' : '';
+  tr.innerHTML=rowHtml(t);
+  if(selected===t.id){ tr.classList.add('sel'); renderDetail(); }
+  updateCount();
 }
-
-function headersTable(hs){
-  if(!hs||!hs.length) return '<pre>(无)</pre>';
-  return '<pre>'+hs.map(h=>esc(h.name)+': '+esc(h.value)).join('\n')+'</pre>';
-}
-function bodyBlock(title, body, size, truncated){
-  if(body==null) return size? `<h3>${title}</h3><pre>(未抓取，${size} 字节)</pre>` : '';
-  const note = truncated ? ` <span class="proto">（已截断，共 ${size} 字节）</span>` : (size?` <span class="proto">（${size} 字节）</span>`:'');
-  return `<h3>${title}${note}</h3><pre>${esc(body)}</pre>`;
-}
-const WS_OP = {1:'text',2:'binary',8:'close',9:'ping',10:'pong'};
-function wsBlock(msgs){
-  if(!msgs || !msgs.length) return '';
-  const rows = msgs.map(m=>{
-    const arrow = m.dir==='send' ? '▲ 发送' : '▼ 接收';
-    const kind = WS_OP[m.opcode] || ('op'+m.opcode);
-    const text = m.text!=null ? esc(m.text) : `(${kind}, ${m.size} 字节)`;
-    return `<div><span class="proto">${arrow} · ${kind}</span> ${text}</div>`;
-  }).join('');
-  return `<h3>WebSocket 消息（${msgs.length}）</h3><pre>${rows}</pre>`;
-}
-function refreshDetail(t){
-  $('#detail').innerHTML =
-    `<h3>${esc(t.method)} ${esc(t.url)}</h3>`+
-    `<div>协议 ${esc(t.protocol)} · 客户端 ${esc(t.client)} · 状态 ${t.status??'-'} · 耗时 ${t.duration_ms??'-'}ms</div>`+
-    (t.error?`<div class="err">错误：${esc(t.error)}</div>`:'')+
-    (t.rules&&t.rules.length?`<h3>命中规则</h3><pre>${esc(t.rules.join('\n'))}</pre>`:'')+
-    `<h3>请求头</h3>${headersTable(t.req_headers)}`+
-    bodyBlock('请求体', t.req_body, t.req_body_size, false)+
-    `<h3>响应头</h3>${headersTable(t.res_headers)}`+
-    bodyBlock('响应体', t.res_body, t.res_body_size, t.res_body_truncated)+
-    wsBlock(t.ws_messages);
-}
-function showDetail(id){
-  selected = id;
-  document.querySelectorAll('tr.row').forEach(r=>r.classList.remove('sel'));
-  document.getElementById('t'+id)?.classList.add('sel');
-  $('#right').classList.add('open');
-  switchPane('detail');
-  refreshDetail(byId.get(id));
-}
-function switchPane(name){
-  document.querySelectorAll('.tabs button[data-pane]').forEach(b=>b.classList.toggle('active', b.dataset.pane===name));
-  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
-  $('#pane-'+name).classList.add('active');
-}
-
-document.querySelectorAll('.tabs button[data-pane]').forEach(b=> b.onclick=()=>switchPane(b.dataset.pane));
-$('#btn-close').onclick = () => { $('#right').classList.remove('open'); selected=null; document.querySelectorAll('tr.row').forEach(r=>r.classList.remove('sel')); };
-$('#btn-rules').onclick = () => { $('#right').classList.add('open'); switchPane('rules'); };
-$('#btn-compose').onclick = () => { $('#right').classList.add('open'); switchPane('compose'); };
-$('#btn-send').onclick = async () => {
-  const headers = {};
-  $('#cmp-headers').value.split('\n').forEach(line => {
-    const i = line.indexOf(':');
-    if(i>0){ const name=line.slice(0,i).trim(), value=line.slice(i+1).trim(); if(name) headers[name]=value; }
+function rebuild(){
+  const rows=$('#rows'); rows.innerHTML='';
+  [...items.values()].filter(matchFilter).sort((a,b)=>b.id-a.id).forEach(t=>{
+    const tr=document.createElement('tr'); tr.id='t'+t.id; tr.className='row'+(selected===t.id?' sel':'');
+    tr.onclick=()=>select(t.id); tr.innerHTML=rowHtml(t); rows.appendChild(tr);
   });
-  const payload = { method: $('#cmp-method').value, url: $('#cmp-url').value.trim(), headers };
-  const body = $('#cmp-body').value;
-  if(body) payload.body = body;
-  $('#cmp-msg').textContent = '发送中…'; $('#cmp-msg').className=''; $('#cmp-resp').innerHTML='';
-  try {
-    const j = await (await fetch('api/compose',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})).json();
-    if(j.ok){
-      $('#cmp-msg').className='ok'; $('#cmp-msg').textContent = `状态 ${j.status}`;
-      $('#cmp-resp').innerHTML = `<h3>响应头</h3><pre>${esc(j.headers)}</pre><h3>响应体</h3><pre>${esc(j.body)}</pre>`;
-    } else {
-      $('#cmp-msg').className='err'; $('#cmp-msg').textContent = `错误：${j.error}`;
-    }
-  } catch(e){ $('#cmp-msg').className='err'; $('#cmp-msg').textContent = `错误：${e}`; }
-};
-$('#btn-clear').onclick = async () => { await fetch('api/traffic',{method:'DELETE'}); rowsEl.innerHTML=''; byId.clear(); emptyEl.style.display=''; };
-$('#btn-save').onclick = async () => {
-  const text = $('#rules-text').value;
-  const r = await fetch('api/rules',{method:'PUT',headers:{'content-type':'text/plain'},body:text});
-  const j = await r.json();
-  $('#rules-msg').className = j.ok?'ok':'err';
-  $('#rules-msg').textContent = j.ok?`已保存，共 ${j.count} 条规则`:`错误：${j.error}`;
-};
-
-async function loadInfo(){ try{ const j=await (await fetch('api/info')).json();
-  $('#meta').textContent = `v${j.version} · 规则 ${j.rules} 条 · 抓包 ${j.capture} 条`; }catch(e){} }
-async function loadRules(){ try{ const j=await (await fetch('api/rules')).json(); $('#rules-text').value=j.text||''; }catch(e){} }
-
-function connectWS(){
-  const proto = location.protocol==='https:'?'wss':'ws';
-  const ws = new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/,'')}/ws`);
-  ws.onopen = ()=>{ $('#wsstate').style.color='#3fb950'; };
-  ws.onclose = ()=>{ $('#wsstate').style.color='#cf222e'; setTimeout(connectWS, 1500); };
-  ws.onmessage = ev => { try{ const t=JSON.parse(ev.data); upsert(t); loadInfoDebounced(); }catch(e){} };
+  updateCount();
 }
-let infoTimer=null; function loadInfoDebounced(){ clearTimeout(infoTimer); infoTimer=setTimeout(loadInfo, 400); }
+function updateCount(){ const n=$('#rows').children.length; $('#count').textContent=`${n} / ${items.size}`; $('#empty').style.display=items.size?'none':''; }
 
+/* detail */
+function headersBlock(hs){ return (hs&&hs.length)?'<pre>'+hs.map(h=>esc(h.name)+': '+esc(h.value)).join('\n')+'</pre>':'<pre class="muted">(无)</pre>'; }
+function bodyBlock(label, body, size, trunc){
+  if(body==null) return size?`<h4>${label}</h4><pre class="muted">(未抓取，${size} 字节)</pre>`:`<h4>${label}</h4><pre class="muted">(空)</pre>`;
+  const note=trunc?` <span class="muted">（已截断，共 ${size} 字节）</span>`:(size?` <span class="muted">（${size} 字节）</span>`:'');
+  return `<h4>${label}${note}</h4><pre>${esc(body)}</pre>`;
+}
+const WSOP={1:'text',2:'binary',8:'close',9:'ping',10:'pong'};
+function wsBlock(msgs){
+  if(!msgs||!msgs.length) return '<pre class="muted">(无 WebSocket 消息)</pre>';
+  return msgs.map(m=>{
+    const d=m.dir==='send'?'send':'recv', label=m.dir==='send'?'▲ 发送':'▼ 接收', kind=WSOP[m.opcode]||('op'+m.opcode);
+    const text=m.text!=null?esc(m.text):`<span class="muted">(${kind}, ${m.size} 字节)</span>`;
+    return `<div class="wsmsg"><span class="dir ${d}">${label}·${kind}</span><span>${text}</span></div>`;
+  }).join('');
+}
+function renderDetail(){
+  const t=items.get(selected); if(!t) return;
+  const b=$('#dbody');
+  if(sub==='overview'){
+    b.innerHTML=`<div class="kv">
+      <span class="k">URL</span><span class="url">${esc(t.url)}</span>
+      <span class="k">方法</span><span>${esc(t.method)}</span>
+      <span class="k">协议</span><span>${esc(t.protocol)}</span>
+      <span class="k">状态</span><span>${t.status??'-'}${t.error?` · <span class="err">${esc(t.error)}</span>`:''}</span>
+      <span class="k">类型 / 大小</span><span>${esc(ctype(t))||'-'} · ${fmtSize(t)||'-'}</span>
+      <span class="k">耗时</span><span>${t.duration_ms??'-'} ms</span>
+      <span class="k">客户端</span><span>${esc(t.client)}</span>
+      <span class="k">命中规则</span><span class="has-rules">${esc((t.rules||[]).join('  '))||'-'}</span>
+    </div>`;
+  } else if(sub==='request'){
+    b.innerHTML=`<h4>请求头</h4>${headersBlock(t.req_headers)}`+bodyBlock('请求体', t.req_body, t.req_body_size, false);
+  } else if(sub==='response'){
+    b.innerHTML=`<h4>响应头</h4>${headersBlock(t.res_headers)}`+bodyBlock('响应体', t.res_body, t.res_body_size, t.res_body_truncated);
+  } else if(sub==='ws'){
+    b.innerHTML=`<h4>WebSocket 消息（${(t.ws_messages||[]).length}）</h4>${wsBlock(t.ws_messages)}`;
+  }
+}
+function select(id){
+  selected=id;
+  $$('#rows tr').forEach(r=>r.classList.remove('sel'));
+  document.getElementById('t'+id)?.classList.add('sel');
+  $('#drawer').classList.add('open');
+  renderDetail();
+}
+$$('#subtabs button').forEach(btn=>btn.onclick=()=>{ sub=btn.dataset.sub; $$('#subtabs button').forEach(x=>x.classList.toggle('active',x===btn)); renderDetail(); });
+$('#dclose').onclick=()=>{ $('#drawer').classList.remove('open'); selected=null; $$('#rows tr').forEach(r=>r.classList.remove('sel')); };
+
+/* views */
+$$('nav button').forEach(btn=>btn.onclick=()=>{
+  $$('nav button').forEach(x=>x.classList.toggle('active',x===btn));
+  $$('.view').forEach(v=>v.classList.remove('active'));
+  $('#view-'+btn.dataset.view).classList.add('active');
+});
+
+/* toolbar */
+$('#filter').oninput=rebuild;
+$('#protofilter').onchange=rebuild;
+$('#pause').onclick=()=>{ paused=!paused; $('#pause').classList.toggle('on',paused); $('#pause').textContent=paused?'▶ 继续':'⏸ 暂停'; if(!paused) rebuild(); };
+$('#clear').onclick=async()=>{ await fetch('api/traffic',{method:'DELETE'}); items.clear(); selected=null; $('#drawer').classList.remove('open'); rebuild(); };
+
+/* rules */
+async function loadRules(){ try{ const j=await (await fetch('api/rules')).json(); $('#rules-text').value=j.text||''; }catch(e){} }
+$('#rules-save').onclick=async()=>{
+  const r=await (await fetch('api/rules',{method:'PUT',headers:{'content-type':'text/plain'},body:$('#rules-text').value})).json();
+  $('#rules-msg').className=r.ok?'ok':'err';
+  $('#rules-msg').textContent=r.ok?`已保存，共 ${r.count} 条规则`:`错误：${r.error}`;
+};
+$('#rules-reload').onclick=loadRules;
+
+/* composer */
+$('#cmp-send').onclick=async()=>{
+  const headers={};
+  $('#cmp-headers').value.split('\n').forEach(l=>{ const i=l.indexOf(':'); if(i>0){ const n=l.slice(0,i).trim(); if(n) headers[n]=l.slice(i+1).trim(); }});
+  const payload={ method:$('#cmp-method').value, url:$('#cmp-url').value.trim(), headers };
+  if($('#cmp-body').value) payload.body=$('#cmp-body').value;
+  $('#cmp-msg').textContent='发送中…'; $('#cmp-msg').className='muted'; $('#cmp-resp').innerHTML='';
+  try{
+    const j=await (await fetch('api/compose',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})).json();
+    if(j.ok){ $('#cmp-msg').className='ok'; $('#cmp-msg').textContent=`状态 ${j.status}`;
+      $('#cmp-resp').innerHTML=`<h4>响应头</h4><pre>${esc(j.headers)}</pre><h4>响应体</h4><pre>${esc(j.body)}</pre>`; }
+    else { $('#cmp-msg').className='err'; $('#cmp-msg').textContent=`错误：${j.error}`; }
+  }catch(e){ $('#cmp-msg').className='err'; $('#cmp-msg').textContent=`错误：${e}`; }
+};
+
+/* live */
+async function loadStats(){ try{ const j=await (await fetch('api/info')).json(); $('#stats').textContent=`v${j.version} · 规则 ${j.rules} · 抓包 ${j.capture}`; }catch(e){} }
+let statsTimer=null; const loadStatsDebounced=()=>{ clearTimeout(statsTimer); statsTimer=setTimeout(loadStats,400); };
+function connectWS(){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  const ws=new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/,'')}/ws`);
+  ws.onopen=()=>$('#wsdot').style.background='#1a7f37';
+  ws.onclose=()=>{ $('#wsdot').style.background='#cf222e'; setTimeout(connectWS,1500); };
+  ws.onmessage=ev=>{ try{ upsert(JSON.parse(ev.data)); loadStatsDebounced(); }catch(e){} };
+}
 (async function(){
-  await loadRules(); await loadInfo();
-  try { const list = await (await fetch('api/traffic?limit=500')).json(); list.reverse().forEach(upsert); } catch(e){}
-  connectWS();
+  await loadRules(); await loadStats();
+  try{ (await (await fetch('api/traffic?limit=1000')).json()).reverse().forEach(t=>items.set(t.id,t)); }catch(e){}
+  rebuild(); connectWS();
 })();
 </script>
 </body>
