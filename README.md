@@ -14,9 +14,12 @@ cargo build --workspace
 cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
 #   打开 http://127.0.0.1:8900/ 查看实时抓包、编辑规则（保存即生效）
 
-# 可选：内嵌 whistle 原生前端（实验性，需在浏览器联调）
+# 可选：对客户端启用 HTTP/2（默认关闭，以兼容 WebSocket 等）
+cargo run --bin w2r -- start --http2
+
+# 可选：内嵌 whistle 原生前端（实验性：界面外壳可渲染，数据面板仍在联调）
 cargo run --bin w2r -- start --ui whistle
-#   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层
+#   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层（建议日常用默认 --ui native）
 
 # 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
 # 抓 HTTPS：先导出并信任根证书

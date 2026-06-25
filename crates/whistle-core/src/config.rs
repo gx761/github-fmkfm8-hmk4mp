@@ -38,6 +38,8 @@ pub struct Config {
     pub data_dir: Option<String>,
     /// 是否对 HTTPS（CONNECT）做中间人解密；false 时退化为盲隧道。
     pub decrypt_https: bool,
+    /// 是否对客户端启用 HTTP/2（MITM 证书 ALPN 提供 h2）；默认否（兼容 WebSocket）。
+    pub enable_http2: bool,
     /// Web 管理界面端口。
     pub ui_port: u16,
     /// 是否启用 Web 管理界面。
@@ -58,6 +60,7 @@ impl Default for Config {
             rules_file: None,
             data_dir: None,
             decrypt_https: true,
+            enable_http2: false,
             ui_port: DEFAULT_UI_PORT,
             ui_enabled: true,
             ui_mode: "native".to_string(),

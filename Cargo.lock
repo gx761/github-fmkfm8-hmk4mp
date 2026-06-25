@@ -1856,6 +1856,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]

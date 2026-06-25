@@ -101,17 +101,23 @@ async fn init(State(s): State<WebState>) -> axum::Json<Value> {
         "ec": 0,
         "version": WVERSION,
         "wName": "whistle-rs",
+        "disableInstaller": false,
+        "account": Value::Null,
         "supportH2": true,
+        "hasInvalidCerts": false,
         "enableHttp2": true,
         "interceptHttpsConnects": true,
         "server": server_obj(),
         "clientId": "whistle-rs",
         "clientIp": "127.0.0.1",
         "lastDataId": "0",
+        "lastSvrLogId": Value::Null,
         "rules": rules_payload(&s),
         "values": values_payload(),
         "plugins": {},
         "disabledPlugins": {},
+        "disabledAllPlugins": false,
+        "disabledAllRules": false,
     }))
 }
 
@@ -161,20 +167,36 @@ async fn get_data(
 
     axum::Json(json!({
         "ec": 0,
+        "wName": "whistle-rs",
         "version": WVERSION,
+        "supportH2": true,
+        "hasInvalidCerts": false,
+        "clientIp": "127.0.0.1",
         "server": server_obj(),
+        "curSvrLogId": Value::Null,
+        "lastSvrLogId": Value::Null,
+        "svrLog": [],
+        "plugins": {},
+        "disabledPlugins": {},
+        "allowMultipleChoice": false,
+        "backRulesFirst": false,
+        "enabledCount": 0,
+        "disabledAllPlugins": false,
+        "disabledAllRules": false,
+        "interceptHttpsConnects": true,
+        "enableHttp2": true,
+        "defaultRulesIsDisabled": false,
+        "list": [],
+        // 网络数据包裹（与 whistle proxy.getData 对齐）。
         "newIds": new_ids,
         "data": Value::Object(data),
         "lastId": last_id,
         "endId": end_id,
         "hasNew": false,
         "frames": frames,
-        "svrLog": [],
-        "plugins": {},
-        "list": [],
-        "enabledCount": 0,
-        "interceptHttpsConnects": true,
-        "enableHttp2": true,
+        "lastFrameId": Value::Null,
+        "tunnelIps": {},
+        "socketStatus": Value::Null,
     }))
 }
 
@@ -212,18 +234,22 @@ fn server_obj() -> Value {
     json!({ "name": "whistle-rs", "version": WVERSION, "nodeVersion": "rust" })
 }
 
-/// 规则面板载荷：把 whistle-rs 的单一规则文本呈现为一个 Default 分组。
+/// 规则面板载荷（对齐 whistle getRules 的字段集）。
 fn rules_payload(s: &WebState) -> Value {
     let text = s.rules_text.read().unwrap().clone();
     json!({
+        "ec": 0,
+        "enabledCount": 0,
+        "defaultRulesIsDisabled": false,
         "defaultRules": text,
-        "disabledDefaultRules": false,
+        "allowMultipleChoice": false,
+        "backRulesFirst": false,
         "list": [],
     })
 }
 
 fn values_payload() -> Value {
-    json!({ "list": [] })
+    json!({ "ec": 0, "list": [] })
 }
 
 /// session id：`"<startTime>-<id>"`，与 whistle 一致。

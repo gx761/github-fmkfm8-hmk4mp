@@ -40,6 +40,9 @@ enum Command {
         /// 不解密 HTTPS（CONNECT 退化为盲隧道）。
         #[arg(long)]
         no_decrypt: bool,
+        /// 对客户端启用 HTTP/2（默认关闭，以兼容 WebSocket 等）。
+        #[arg(long)]
+        http2: bool,
         /// Web 管理界面端口。
         #[arg(long, default_value_t = whistle_core::config::DEFAULT_UI_PORT)]
         ui_port: u16,
@@ -97,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
             rules,
             data_dir,
             no_decrypt,
+            http2,
             ui_port,
             no_ui,
             ui,
@@ -114,6 +118,7 @@ async fn main() -> anyhow::Result<()> {
                     rules_file: rules,
                     data_dir,
                     decrypt_https: !no_decrypt,
+                    enable_http2: http2,
                     ui_port,
                     ui_enabled: !no_ui,
                     ui_mode: ui,

@@ -97,7 +97,9 @@ fn expand_includes(
 /// 加载或生成根 CA。
 pub fn load_ca(config: &Config) -> Result<Arc<CertAuthority>> {
     let dir = data_dir(config);
-    let ca = CertAuthority::load_or_generate(&dir).map_err(|e| Error::Tls(e.to_string()))?;
+    let ca = CertAuthority::load_or_generate(&dir)
+        .map_err(|e| Error::Tls(e.to_string()))?
+        .with_http2(config.enable_http2);
     Ok(Arc::new(ca))
 }
 

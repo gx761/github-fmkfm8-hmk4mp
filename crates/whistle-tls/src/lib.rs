@@ -44,6 +44,8 @@ pub struct CertAuthority {
     issuer_key: KeyPair,
     issuer_cert: rcgen::Certificate,
     ca_pem: String,
+    /// 是否在 MITM 证书 ALPN 中提供 h2（默认否：避免 WebSocket-over-h2 等兼容问题）。
+    enable_http2: bool,
     cache: Mutex<HashMap<String, Arc<ServerConfig>>>,
 }
 
@@ -78,8 +80,15 @@ impl CertAuthority {
             issuer_key,
             issuer_cert,
             ca_pem,
+            enable_http2: false,
             cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// 设置是否对客户端提供 h2 ALPN（默认否）。
+    pub fn with_http2(mut self, enable: bool) -> Self {
+        self.enable_http2 = enable;
+        self
     }
 
     /// 根 CA 证书的 PEM（用于导出/安装）。
@@ -100,7 +109,8 @@ impl CertAuthority {
         Ok(cfg)
     }
 
-    fn build_server_config(&self, host: &str) -> Result<ServerConfig> {
+    /// 签发某 host 的叶子证书（含浏览器所需扩展），返回证书与其私钥。
+    fn make_leaf(&self, host: &str) -> Result<(rcgen::Certificate, KeyPair)> {
         let mut params = CertificateParams::new(vec![host.to_string()])?;
         params
             .distinguished_name
@@ -117,6 +127,11 @@ impl CertAuthority {
         params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         let leaf_key = KeyPair::generate()?;
         let leaf_cert = params.signed_by(&leaf_key, &self.issuer_cert, &self.issuer_key)?;
+        Ok((leaf_cert, leaf_key))
+    }
+
+    fn build_server_config(&self, host: &str) -> Result<ServerConfig> {
+        let (leaf_cert, leaf_key) = self.make_leaf(host)?;
 
         let chain = vec![
             CertificateDer::from(leaf_cert.der().to_vec()),
@@ -128,8 +143,12 @@ impl CertAuthority {
         let mut cfg = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(chain, key)?;
-        // 同时提供 h2 与 http/1.1，由客户端 ALPN 选择（中间人对客户端侧）。
-        cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        // 默认仅 http/1.1（兼容 WebSocket 等）；显式开启 h2 时再追加。
+        cfg.alpn_protocols = if self.enable_http2 {
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+        } else {
+            vec![b"http/1.1".to_vec()]
+        };
         Ok(cfg)
     }
 }
@@ -251,6 +270,29 @@ mod tests {
         // 不同 host 各自签发。
         let c = ca.server_config_for("other.com").unwrap();
         assert!(!Arc::ptr_eq(&a, &c));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn leaf_cert_is_browser_compatible() {
+        use x509_parser::prelude::*;
+        let dir = std::env::temp_dir().join(format!("whistle-rs-leaf-{}", std::process::id()));
+        let ca = CertAuthority::load_or_generate(&dir).unwrap();
+        let (leaf, _key) = ca.make_leaf("example.com").unwrap();
+        let der = leaf.der();
+        let (_, cert) = X509Certificate::from_der(der).unwrap();
+
+        // 有效期必须 ≤ 398 天（浏览器上限）。
+        let nb = cert.validity().not_before.timestamp();
+        let na = cert.validity().not_after.timestamp();
+        let days = (na - nb) / 86400;
+        assert!(days <= 398, "叶子证书有效期 {days} 天 > 398");
+
+        // 必须含 serverAuth EKU 且非 CA。
+        let eku = cert.extended_key_usage().unwrap().unwrap().value;
+        assert!(eku.server_auth, "缺少 serverAuth EKU");
+        assert!(!cert.is_ca(), "叶子证书不应是 CA");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
