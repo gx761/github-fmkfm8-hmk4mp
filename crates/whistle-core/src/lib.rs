@@ -112,12 +112,35 @@ pub async fn start(config: Config) -> Result<()> {
 
     // Web 管理界面（共享 store 与 rules，支持热更新）。
     if config.ui_enabled {
+        let dir = data_dir(&config);
+        // whistle UI 可编辑状态：优先从磁盘加载，否则用启动规则播种默认规则。
+        let mut wdata = whistle_web::whistle_store::WhistleData::load(
+            &whistle_web::whistle_store::data_path(&dir),
+        )
+        .unwrap_or_default();
+        if wdata.default_rules.trim().is_empty() && !rules_text.trim().is_empty() {
+            wdata.default_rules = rules_text.clone();
+        }
+        // 以 whistle 数据计算出的生效规则为准（whistle 模式下覆盖启动规则）。
+        let effective = wdata.effective_text();
+        if config.ui_mode == "whistle" {
+            if let Ok(set) = RuleSet::parse(&effective) {
+                *rules.write().unwrap() = set;
+            }
+        }
+        let rules_text = if config.ui_mode == "whistle" {
+            effective
+        } else {
+            rules_text
+        };
         let state = WebState {
             store: store.clone(),
             rules: rules.clone(),
             rules_text: Arc::new(RwLock::new(rules_text)),
             proxy_addr: format!("{}:{}", config.host, config.port),
             ui_mode: config.ui_mode.clone(),
+            whistle: Arc::new(RwLock::new(wdata)),
+            data_dir: dir,
         };
         let ui_addr = config.ui_addr();
         match ui_addr.parse::<std::net::SocketAddr>() {

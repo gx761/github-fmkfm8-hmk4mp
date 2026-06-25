@@ -4,8 +4,10 @@
 //! 支持在线编辑规则并热生效（无需重启）。
 
 mod whistle_compat;
+pub mod whistle_store;
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -34,6 +36,35 @@ pub struct WebState {
     pub proxy_addr: String,
     /// UI 模式：`native`（内置精简界面）/ `whistle`（内嵌 whistle 原生前端 + 兼容后端）。
     pub ui_mode: String,
+    /// whistle UI 的可编辑状态（规则分组/Values/开关），仅 whistle 模式使用。
+    pub whistle: Arc<RwLock<whistle_store::WhistleData>>,
+    /// 数据目录（持久化 whistle-ui.json）。
+    pub data_dir: PathBuf,
+}
+
+impl WebState {
+    /// 重新计算 whistle UI 的生效规则文本，热替换进代理规则集，并持久化。
+    ///
+    /// 任何对 `whistle` 数据的修改后都应调用本方法，使代理立即按新规则工作。
+    pub fn whistle_apply_and_save(&self) {
+        let (text, snapshot) = {
+            let d = self.whistle.read().unwrap();
+            (d.effective_text(), d.clone())
+        };
+        match RuleSet::parse(&text) {
+            Ok(set) => {
+                let count = set.len();
+                *self.rules.write().unwrap() = set;
+                *self.rules_text.write().unwrap() = text;
+                info!(count, "whistle UI 规则已热更新");
+            }
+            Err(e) => {
+                // 解析失败时不替换现有规则，仅记录（前端文本可能临时不合法）。
+                info!(error = %e, "whistle UI 规则解析失败，保留旧规则");
+            }
+        }
+        snapshot.save(&whistle_store::data_path(&self.data_dir));
+    }
 }
 
 /// 启动 Web 管理面，监听 `addr`。
@@ -232,6 +263,8 @@ mod tests {
             rules_text: Arc::new(RwLock::new(String::new())),
             proxy_addr: "127.0.0.1:0".to_string(),
             ui_mode: "native".to_string(),
+            whistle: Arc::new(RwLock::new(whistle_store::WhistleData::default())),
+            data_dir: std::env::temp_dir(),
         }
     }
 
