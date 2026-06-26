@@ -831,6 +831,60 @@ fn raw_names(hs: &[whistle_capture::Header]) -> Value {
 }
 
 /// 把一条 Traffic 映射为 whistle session 对象。
+/// 构造 whistle session 的 `rules` 字段（命中规则视图）。
+///
+/// 结构对齐 whistle 2.10.4 `matched-rule.js` 的消费：按协议名分组，每项至少含
+/// `rawPattern`/`matcher`/`raw`，多匹配协议（如 reqHeaders）再带 `list`。
+/// `traffic.rules` 是命中的操作 token（如 `reqHeaders://swimlane=...`），
+/// 以请求 host 作为展示用的 rawPattern。
+fn session_rules(t: &Traffic) -> Value {
+    if t.rules.is_empty() {
+        return Value::Object(Map::new());
+    }
+    let pattern = t.host.clone();
+    // 按协议分组并保持出现顺序。
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for raw in &t.rules {
+        let proto = raw
+            .split_once("://")
+            .map(|(p, _)| p)
+            .unwrap_or("host")
+            .to_string();
+        match groups.iter_mut().find(|(p, _)| *p == proto) {
+            Some((_, v)) => v.push(raw.clone()),
+            None => groups.push((proto, vec![raw.clone()])),
+        }
+    }
+    let mut obj = Map::new();
+    for (proto, raws) in groups {
+        let list: Vec<Value> = raws
+            .iter()
+            .map(|r| {
+                json!({
+                    "name": proto,
+                    "rawPattern": pattern,
+                    "matcher": r,
+                    "raw": format!("{pattern} {r}"),
+                })
+            })
+            .collect();
+        let first = &raws[0];
+        obj.insert(
+            proto.clone(),
+            json!({
+                "name": proto,
+                "rawPattern": pattern,
+                "pattern": pattern,
+                "matcher": first,
+                "rawMatcher": first,
+                "raw": format!("{pattern} {first}"),
+                "list": list,
+            }),
+        );
+    }
+    Value::Object(obj)
+}
+
 fn session_json(t: &Traffic) -> Value {
     let dur = t.duration_ms.unwrap_or(0);
     let end = t.start_time + dur;
@@ -863,7 +917,7 @@ fn session_json(t: &Traffic) -> Value {
             "size": t.res_body_size,
             "body": t.res_body.clone().unwrap_or_default(),
         },
-        "rules": {},
+        "rules": session_rules(t),
         "rulesHeaders": {},
         "frames": Value::Array(vec![]),
         "version": WVERSION,
@@ -1071,5 +1125,29 @@ mod tests {
         let r = post(&router, "/cgi-bin/rules/select", "name=b&value=y").await;
         assert_eq!(r["list"].as_array().unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_rules_builds_whistle_structure() {
+        let mut t = Traffic::new(1, "http", "GET", "http://h.test/x", "h.test", "c");
+        t.rules = vec![
+            "reqHeaders://swimlane=abc".to_string(),
+            "host://1.2.3.4".to_string(),
+        ];
+        let v = session_rules(&t);
+        let obj = v.as_object().unwrap();
+        // 按协议分组。
+        assert!(obj.contains_key("reqHeaders"));
+        assert!(obj.contains_key("host"));
+        let rh = &obj["reqHeaders"];
+        // 命中规则视图所需的最小字段（rawPattern/matcher/raw + list）。
+        assert_eq!(rh["rawPattern"], "h.test");
+        assert_eq!(rh["matcher"], "reqHeaders://swimlane=abc");
+        assert_eq!(rh["raw"], "h.test reqHeaders://swimlane=abc");
+        assert_eq!(rh["list"].as_array().unwrap().len(), 1);
+        assert_eq!(rh["list"][0]["matcher"], "reqHeaders://swimlane=abc");
+        // 空规则 → 空对象（不会被标记为命中）。
+        let empty = Traffic::new(2, "http", "GET", "http://h/", "h", "c");
+        assert!(session_rules(&empty).as_object().unwrap().is_empty());
     }
 }
