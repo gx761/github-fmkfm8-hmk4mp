@@ -22,9 +22,16 @@ cargo run --bin w2r -- start --ui whistle
 #   服务 whistle 2.10.4 编译好的前端 + 兼容的 /cgi-bin 后端适配层（规则保存到 ~/.whistle-rs/whistle-ui.json）
 
 # 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899 即可抓 HTTP 流量。
-# 抓 HTTPS：先导出并信任根证书
+#
+# HTTPS 默认「按需解密」：只对命中规则的 host 做中间人解密，其余 HTTPS 一律盲隧道
+# 直通——因此开了代理也不会让 www.baidu.com 等普通站点打不开（无需安装证书）。
+# 要解密某站点（查看/改写其 HTTPS 流量）：
+#   1) 导出并在系统/浏览器中信任根证书：
 cargo run --bin w2r -- ca export whistle-rs-ca.pem
-#   将 whistle-rs-ca.pem 导入系统/浏览器的“受信任根证书”，再访问 https 站点。
+#      将 whistle-rs-ca.pem 导入系统/浏览器的“受信任根证书”。
+#   2) 给该 host 写一条规则（哪怕只是 `host.com reqHeaders://x:1`），它就会被解密抓取；
+#      或用 --intercept-https / whistle UI 的「Intercept HTTPS CONNECTs」开关解密全部 HTTPS。
+cargo run --bin w2r -- start --intercept-https   # 解密所有 HTTPS（需先信任根证书）
 
 # 检查（与 CI 一致）
 cargo fmt --all -- --check
@@ -39,7 +46,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
 
 ## 已实现能力
 
-- **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密（动态签发证书，`w2r ca export` 安装根证书后即可）；**HTTP/2**（客户端侧按 ALPN 协商 h2）；CONNECT 盲隧道（`--no-decrypt`）。
+- **代理**：HTTP / HTTPS 抓包与转发；HTTPS 中间人解密**按需进行**——默认仅解密命中规则的 host，其余 HTTPS 盲隧道直通（开了代理不会让普通站点打不开）；`--intercept-https` 或 UI 开关可解密全部（需先 `w2r ca export` 安装并信任根证书）；`--no-decrypt` 完全不解密；**HTTP/2**（客户端侧按 ALPN 协商 h2）。
 - **WebSocket**：`ws://` 与 `wss://` 升级转发，并做**帧级抓取**（记录每条消息的方向/类型/预览/大小）。
 - **级联代理**：`proxy://`（上游 HTTP 代理）与 `socks://`（上游 SOCKS5 代理），HTTP 与 HTTPS 均支持。
 - **SOCKS5 入站**：与 HTTP 代理共用端口；`curl --socks5-hostname` 的 HTTPS 走 MITM、其余盲隧道。
@@ -59,7 +66,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
   | 上游 / 插件 | `proxy` `socks` `plugin` `plugin-vars` |
   | 模板 / 控制 | `tpl` `xtpl` `ignore` `includeFilter` `excludeFilter` + `@include` 行 |
 
-- **测试**：66 个单元/集成测试（含 whistle `/cgi-bin` 规则编辑端到端测试）+ 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
+- **测试**：69 个单元/集成测试（含 whistle `/cgi-bin` 规则编辑端到端测试、HTTPS 按需解密决策）+ 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
 
 > 已决定不实现（详见路线图，附理由）：`pac`（需 JS 引擎）、`reqWrite*`/`resWrite*`、`responseFor`、`trailers`、`cipher`/`sniCallback`、`weinre`、`pipe`、上游侧 HTTP/2；`reqRules`/`resRules`/`inherit`（动态规则注入）尚未实现。
 

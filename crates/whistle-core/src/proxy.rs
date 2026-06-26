@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use http_body_util::BodyExt;
@@ -35,8 +36,24 @@ struct Ctx {
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
+    /// 是否解密全部 HTTPS（运行时可由 Web UI 切换）。false 时只解密命中规则的 host。
+    intercept_all: Arc<AtomicBool>,
     body_limit: usize,
     plugins: Arc<HashMap<String, String>>,
+}
+
+impl Ctx {
+    /// 决定是否对某 host 做 HTTPS 中间人解密：需具备解密能力，且（全局拦截开启
+    /// 或存在引用该 host 的规则）。否则盲隧道直通，保证未装根证书时站点仍可访问。
+    fn should_mitm(&self, host: &str) -> bool {
+        if !self.decrypt_https {
+            return false;
+        }
+        if self.intercept_all.load(Ordering::Relaxed) {
+            return true;
+        }
+        self.rules.read().unwrap().intercepts_host(host)
+    }
 }
 
 /// 监听代理端口并处理连接，直到收到 Ctrl-C。
@@ -45,12 +62,14 @@ pub async fn serve(
     store: Arc<CaptureStore>,
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
+    intercept_all: Arc<AtomicBool>,
 ) -> crate::Result<()> {
     let addr = config.bind_addr();
     let listener = TcpListener::bind(&addr).await?;
     info!(
         %addr,
         decrypt_https = config.decrypt_https,
+        intercept_all_https = config.intercept_all_https,
         "whistle-rs 代理已启动"
     );
     serve_listener(
@@ -59,6 +78,7 @@ pub async fn serve(
         rules,
         ca,
         config.decrypt_https,
+        intercept_all,
         config.capture_body_limit,
         Arc::new(config.plugins.clone()),
     )
@@ -73,6 +93,7 @@ pub async fn serve_listener(
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     decrypt_https: bool,
+    intercept_all: Arc<AtomicBool>,
     body_limit: usize,
     plugins: Arc<HashMap<String, String>>,
 ) -> crate::Result<()> {
@@ -81,6 +102,7 @@ pub async fn serve_listener(
         rules,
         ca,
         decrypt_https,
+        intercept_all,
         body_limit,
         plugins,
     };
@@ -215,7 +237,7 @@ fn handle_connect(req: Request<Incoming>, peer: SocketAddr, ctx: Ctx) -> Respons
         .unwrap_or_else(|| req.uri().to_string());
     let (host, port) = split_authority(&authority, 443);
 
-    if ctx.decrypt_https {
+    if ctx.should_mitm(&host) {
         // 中间人：升级后用动态证书与客户端建立 TLS，再逐请求转发。
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
@@ -347,7 +369,7 @@ async fn handle_socks5(mut stream: TcpStream, peer: SocketAddr, ctx: Ctx) {
     // 3) 探测首字节决定 MITM(0x16=TLS) 还是盲隧道。
     let mut fb = [0u8; 1];
     let is_tls = matches!(stream.peek(&mut fb).await, Ok(1) if fb[0] == 0x16);
-    if ctx.decrypt_https && is_tls {
+    if is_tls && ctx.should_mitm(&host) {
         serve_mitm(stream, host, port, peer, ctx).await;
         return;
     }

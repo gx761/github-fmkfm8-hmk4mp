@@ -142,6 +142,43 @@ impl Pattern {
             }
         }
     }
+
+    /// 该模式是否可能作用于某 host（忽略具体路径）。
+    ///
+    /// 用于 CONNECT 阶段决定「是否对该 host 做 HTTPS 中间人解密」：仅当存在引用该
+    /// host 的规则时才解密，否则盲隧道直通（避免未安装根证书时所有 HTTPS 站点打不开）。
+    /// 这是一个偏保守的启发式：能匹配 `scheme://host/` 探针即视为命中。
+    pub fn matches_host(&self, host: &str) -> bool {
+        let host = strip_port(host).to_ascii_lowercase();
+        if host.is_empty() {
+            return false;
+        }
+        match self {
+            Pattern::DomainPath { host: h, .. } => &host == h,
+            Pattern::UrlPrefix(p) => {
+                // 取前缀的 authority（scheme:// 之后到下一个分隔符），与 host 比较。
+                match p.split_once("://") {
+                    Some((_, rest)) => {
+                        let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+                        let auth = strip_port(auth).to_ascii_lowercase();
+                        !auth.is_empty() && auth == host
+                    }
+                    None => false,
+                }
+            }
+            Pattern::Regex(re) => {
+                re.is_match(&format!("https://{host}/")) || re.is_match(&format!("http://{host}/"))
+            }
+            Pattern::Wildcard { re, with_scheme } => {
+                if *with_scheme {
+                    re.is_match(&format!("https://{host}/"))
+                        || re.is_match(&format!("http://{host}/"))
+                } else {
+                    re.is_match(&format!("{host}/"))
+                }
+            }
+        }
+    }
 }
 
 /// 把通配符模式转为正则源串（不含锚点）。`*` → `.*`，其余字符转义。
@@ -264,6 +301,11 @@ impl RuleSet {
     /// 是否为空。
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
+    }
+
+    /// 是否存在引用该 host 的规则（用于决定 HTTPS 是否需要中间人解密）。
+    pub fn intercepts_host(&self, host: &str) -> bool {
+        self.rules.iter().any(|r| r.pattern.matches_host(host))
     }
 
     /// 对一个请求求值，按规则书写顺序收集所有命中规则的操作。
@@ -544,5 +586,37 @@ mod tests {
         let rs = RuleSet::parse(text).unwrap();
         let ops = rs.match_request(&input("http", "example.com", "/"));
         assert_eq!(last_value(&ops, "host"), Some("2.2.2.2"));
+    }
+
+    #[test]
+    fn intercepts_host_only_referenced_hosts() {
+        // 域名+路径规则：只命中该 host（即便规则限定了路径）。
+        let rs = RuleSet::parse("api.example.com/v1 statusCode://200").unwrap();
+        assert!(rs.intercepts_host("api.example.com"));
+        assert!(rs.intercepts_host("api.example.com:443"));
+        assert!(!rs.intercepts_host("www.baidu.com"));
+        assert!(!rs.intercepts_host("other.com"));
+    }
+
+    #[test]
+    fn intercepts_host_wildcard_and_regex_and_prefix() {
+        // 通配符（无 scheme）。
+        let w = RuleSet::parse("*.example.com host://1.1.1.1").unwrap();
+        assert!(w.intercepts_host("a.example.com"));
+        assert!(!w.intercepts_host("example.org"));
+        // 正则。
+        let re = RuleSet::parse("/baidu\\.com/ host://1.1.1.1").unwrap();
+        assert!(re.intercepts_host("www.baidu.com"));
+        assert!(!re.intercepts_host("google.com"));
+        // URL 前缀。
+        let p = RuleSet::parse("https://secure.test/app file:///tmp/x").unwrap();
+        assert!(p.intercepts_host("secure.test"));
+        assert!(!p.intercepts_host("insecure.test"));
+    }
+
+    #[test]
+    fn empty_ruleset_intercepts_nothing() {
+        let rs = RuleSet::default();
+        assert!(!rs.intercepts_host("www.baidu.com"));
     }
 }

@@ -36,8 +36,17 @@ pub struct Config {
     pub rules_file: Option<String>,
     /// 数据目录（CA、配置等）；None 时用 `~/.whistle-rs`。
     pub data_dir: Option<String>,
-    /// 是否对 HTTPS（CONNECT）做中间人解密；false 时退化为盲隧道。
+    /// 是否启用 HTTPS 中间人解密能力；false 时所有 HTTPS 一律盲隧道直通。
+    ///
+    /// 注意：启用本能力后，**默认仅对命中规则的 host 做解密**（其余盲隧道直通），
+    /// 以免未安装根证书时所有 HTTPS 站点打不开。要解密全部 HTTPS，另见
+    /// [`Config::intercept_all_https`]。
     pub decrypt_https: bool,
+    /// 是否对**所有** HTTPS host 做中间人解密（whistle 的「Intercept HTTPS CONNECTs」）。
+    ///
+    /// 默认 false：只解密命中规则的 host。开启需先安装并信任根证书，否则 HTTPS 站点
+    /// 会因证书不受信任而无法访问。
+    pub intercept_all_https: bool,
     /// 是否对客户端启用 HTTP/2（MITM 证书 ALPN 提供 h2）；默认否（兼容 WebSocket）。
     pub enable_http2: bool,
     /// Web 管理界面端口。
@@ -60,6 +69,7 @@ impl Default for Config {
             rules_file: None,
             data_dir: None,
             decrypt_https: true,
+            intercept_all_https: false,
             enable_http2: false,
             ui_port: DEFAULT_UI_PORT,
             ui_enabled: true,

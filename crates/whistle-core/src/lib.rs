@@ -11,6 +11,7 @@ pub mod proxy;
 mod ws;
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
 pub use config::Config;
@@ -109,6 +110,8 @@ pub async fn start(config: Config) -> Result<()> {
     let (rule_set, rules_text) = load_rules(&config)?;
     let rules = Arc::new(RwLock::new(rule_set));
     let ca = load_ca(&config)?;
+    // 全局「解密所有 HTTPS」开关（运行时可由 Web UI 切换）。
+    let intercept_all = Arc::new(AtomicBool::new(config.intercept_all_https));
 
     // Web 管理界面（共享 store 与 rules，支持热更新）。
     if config.ui_enabled {
@@ -141,6 +144,7 @@ pub async fn start(config: Config) -> Result<()> {
             ui_mode: config.ui_mode.clone(),
             whistle: Arc::new(RwLock::new(wdata)),
             data_dir: dir,
+            intercept_all: intercept_all.clone(),
         };
         let ui_addr = config.ui_addr();
         match ui_addr.parse::<std::net::SocketAddr>() {
@@ -156,7 +160,7 @@ pub async fn start(config: Config) -> Result<()> {
         }
     }
 
-    proxy::serve(config, store, rules, ca).await
+    proxy::serve(config, store, rules, ca, intercept_all).await
 }
 
 #[cfg(test)]

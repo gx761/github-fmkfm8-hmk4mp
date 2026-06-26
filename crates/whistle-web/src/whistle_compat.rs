@@ -80,6 +80,10 @@ pub fn whistle_router(state: WebState) -> Router {
         .route("/cgi-bin/rules/recycle/list", get(rules_recycle_list))
         .route("/cgi-bin/rules/recycle/view", get(rules_recycle_view))
         .route("/cgi-bin/rules/recycle/remove", post(rules_recycle_remove))
+        .route(
+            "/cgi-bin/intercept-https-connects",
+            post(intercept_https_connects),
+        )
         // ---- Values ----
         .route("/cgi-bin/values/list", get(values_list))
         .route("/cgi-bin/values/add", post(values_add))
@@ -193,6 +197,7 @@ fn content_type(path: &str) -> &'static str {
 
 /// `cgi-bin/init`：前端启动数据。
 async fn init(State(s): State<WebState>) -> axum::Json<Value> {
+    let intercept = s.intercept_all.load(std::sync::atomic::Ordering::Relaxed);
     let d = s.whistle.read().unwrap();
     axum::Json(json!({
         "ec": 0,
@@ -203,7 +208,7 @@ async fn init(State(s): State<WebState>) -> axum::Json<Value> {
         "supportH2": true,
         "hasInvalidCerts": false,
         "enableHttp2": true,
-        "interceptHttpsConnects": true,
+        "interceptHttpsConnects": intercept,
         "server": server_obj(),
         "clientId": "whistle-rs",
         "clientIp": "127.0.0.1",
@@ -274,6 +279,7 @@ async fn get_data(
         .and_then(|cur| frames_for(&all, cur))
         .unwrap_or_else(|| Value::Array(vec![]));
 
+    let intercept = s.intercept_all.load(std::sync::atomic::Ordering::Relaxed);
     let d = s.whistle.read().unwrap();
     // whistle 的 get-data 顶层是元信息，网络数据嵌套在 `data`（= proxy.getData 的结果）。
     let network = json!({
@@ -307,7 +313,7 @@ async fn get_data(
         "enabledCount": d.enabled_count(),
         "disabledAllPlugins": false,
         "disabledAllRules": d.disabled_all_rules,
-        "interceptHttpsConnects": true,
+        "interceptHttpsConnects": intercept,
         "enableHttp2": true,
         "defaultRulesIsDisabled": d.default_disabled,
         "list": [],
@@ -518,6 +524,18 @@ async fn rules_disable_all(State(s): State<WebState>, body: String) -> axum::Jso
         d.disabled_all_rules = p.truthy("disabledAllRules");
     }
     s.whistle_apply_and_save();
+    axum::Json(json!({ "ec": 0 }))
+}
+
+/// `cgi-bin/intercept-https-connects`：切换「解密所有 HTTPS」（whistle 同名开关）。
+///
+/// 关闭时只解密命中规则的 host（默认），其余 HTTPS 盲隧道直通——这样未安装根证书
+/// 也不会导致普通 HTTPS 站点打不开。
+async fn intercept_https_connects(State(s): State<WebState>, body: String) -> axum::Json<Value> {
+    let p = Params::parse(&body);
+    let on = p.truthy("interceptHttpsConnects");
+    s.intercept_all
+        .store(on, std::sync::atomic::Ordering::Relaxed);
     axum::Json(json!({ "ec": 0 }))
 }
 
@@ -902,6 +920,7 @@ mod tests {
             ui_mode: "whistle".to_string(),
             whistle: Arc::new(RwLock::new(WhistleData::default())),
             data_dir: dir.clone(),
+            intercept_all: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         (s, dir)
     }

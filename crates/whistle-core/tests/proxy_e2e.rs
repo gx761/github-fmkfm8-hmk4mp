@@ -50,6 +50,7 @@ async fn spawn_proxy(rules_text: &str) -> (std::net::SocketAddr, Arc<CaptureStor
             rules,
             ca,
             false,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             512 * 1024,
             std::sync::Arc::new(std::collections::HashMap::new()),
         )

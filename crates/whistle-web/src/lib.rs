@@ -40,6 +40,8 @@ pub struct WebState {
     pub whistle: Arc<RwLock<whistle_store::WhistleData>>,
     /// 数据目录（持久化 whistle-ui.json）。
     pub data_dir: PathBuf,
+    /// 全局「解密所有 HTTPS」开关（与代理内核共享，UI 可切换）。
+    pub intercept_all: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WebState {
@@ -265,6 +267,7 @@ mod tests {
             ui_mode: "native".to_string(),
             whistle: Arc::new(RwLock::new(whistle_store::WhistleData::default())),
             data_dir: std::env::temp_dir(),
+            intercept_all: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

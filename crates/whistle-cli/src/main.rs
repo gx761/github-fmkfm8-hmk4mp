@@ -37,9 +37,12 @@ enum Command {
         /// 数据目录（CA、配置）；默认 ~/.whistle-rs。
         #[arg(long)]
         data_dir: Option<String>,
-        /// 不解密 HTTPS（CONNECT 退化为盲隧道）。
+        /// 完全不解密 HTTPS（所有 CONNECT 一律盲隧道直通）。
         #[arg(long)]
         no_decrypt: bool,
+        /// 解密所有 HTTPS（默认仅解密命中规则的 host）。需先安装并信任根证书。
+        #[arg(long)]
+        intercept_https: bool,
         /// 对客户端启用 HTTP/2（默认关闭，以兼容 WebSocket 等）。
         #[arg(long)]
         http2: bool,
@@ -100,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
             rules,
             data_dir,
             no_decrypt,
+            intercept_https,
             http2,
             ui_port,
             no_ui,
@@ -118,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
                     rules_file: rules,
                     data_dir,
                     decrypt_https: !no_decrypt,
+                    intercept_all_https: intercept_https,
                     enable_http2: http2,
                     ui_port,
                     ui_enabled: !no_ui,
