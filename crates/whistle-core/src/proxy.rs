@@ -40,6 +40,9 @@ struct Ctx {
     intercept_all: Arc<AtomicBool>,
     body_limit: usize,
     plugins: Arc<HashMap<String, String>>,
+    /// 管理界面路由：用浏览器「直接」访问代理端口（非代理请求）时返回看板。
+    /// 这样代理与看板共用一个端口，和 whistle 一致。
+    ui_router: Option<axum::Router>,
 }
 
 impl Ctx {
@@ -63,6 +66,7 @@ pub async fn serve(
     rules: Arc<RwLock<RuleSet>>,
     ca: Arc<CertAuthority>,
     intercept_all: Arc<AtomicBool>,
+    ui_router: Option<axum::Router>,
 ) -> crate::Result<()> {
     let addr = config.bind_addr();
     let listener = TcpListener::bind(&addr).await?;
@@ -70,7 +74,7 @@ pub async fn serve(
         %addr,
         decrypt_https = config.decrypt_https,
         intercept_all_https = config.intercept_all_https,
-        "whistle-rs 代理已启动"
+        "whistle-rs 代理已启动（浏览器直接访问本端口可打开看板）"
     );
     serve_listener(
         listener,
@@ -81,6 +85,7 @@ pub async fn serve(
         intercept_all,
         config.capture_body_limit,
         Arc::new(config.plugins.clone()),
+        ui_router,
     )
     .await
 }
@@ -96,6 +101,7 @@ pub async fn serve_listener(
     intercept_all: Arc<AtomicBool>,
     body_limit: usize,
     plugins: Arc<HashMap<String, String>>,
+    ui_router: Option<axum::Router>,
 ) -> crate::Result<()> {
     let ctx = Ctx {
         store,
@@ -105,6 +111,7 @@ pub async fn serve_listener(
         intercept_all,
         body_limit,
         plugins,
+        ui_router,
     };
 
     loop {
@@ -150,9 +157,37 @@ async fn handle(
 ) -> Result<Response<ResBody>, Infallible> {
     if req.method() == Method::CONNECT {
         Ok(handle_connect(req, peer, ctx))
+    } else if req.uri().host().is_none() {
+        // 非代理（origin-form）请求：浏览器直接访问了代理端口 → 返回管理界面看板。
+        // 代理请求一定是 absolute-form（带 host），据此区分。
+        match ctx.ui_router.clone() {
+            Some(router) => Ok(serve_ui(router, req).await),
+            None => Ok(handle_http(req, peer, ctx).await),
+        }
     } else {
         Ok(handle_http(req, peer, ctx).await)
     }
+}
+
+/// 把一个「直接」HTTP 请求交给管理界面 axum 路由处理，并把响应桥接回代理的 `ResBody`。
+///
+/// 管理界面响应均为有限大小（HTML/JSON/静态资源），故整体收集为字节再封装，
+/// 以规避 axum `Body`（非 `Sync`）与代理 `ResBody`（`Sync` BoxBody）的类型差异。
+async fn serve_ui(router: axum::Router, req: Request<Incoming>) -> Response<ResBody> {
+    use tower::ServiceExt;
+    let axum_req = req.map(axum::body::Body::new);
+    // axum Router 的 Service 错误类型为 Infallible。
+    let resp = match router.oneshot(axum_req).await {
+        Ok(r) => r,
+        Err(never) => match never {},
+    };
+    let (parts, body) = resp.into_parts();
+    let bytes = body
+        .collect()
+        .await
+        .map(|c| c.to_bytes().to_vec())
+        .unwrap_or_default();
+    Response::from_parts(parts, apply::full_body(bytes))
 }
 
 /// 明文 HTTP 转发（含规则求值与改写）。

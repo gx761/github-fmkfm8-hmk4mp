@@ -71,7 +71,11 @@ impl WebState {
 
 /// 启动 Web 管理面，监听 `addr`。
 pub async fn serve(addr: std::net::SocketAddr, state: WebState) -> std::io::Result<()> {
-    let app = router(state);
+    serve_router(addr, router(state)).await
+}
+
+/// 在 `addr` 上服务一个已构建好的路由（便于在多处复用同一 `Router`）。
+pub async fn serve_router(addr: std::net::SocketAddr, app: Router) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "whistle-rs 管理界面已启动");
     axum::serve(listener, app).await

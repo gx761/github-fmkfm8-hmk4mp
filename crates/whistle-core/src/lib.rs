@@ -114,7 +114,9 @@ pub async fn start(config: Config) -> Result<()> {
     let intercept_all = Arc::new(AtomicBool::new(config.intercept_all_https));
 
     // Web 管理界面（共享 store 与 rules，支持热更新）。
-    if config.ui_enabled {
+    // 同一个 Router 既在独立的 UI 端口上服务，也交给代理端口处理「直接访问」请求
+    // （非代理的 origin-form 请求）——于是代理端口本身也能打开看板，和 whistle 一样单端口可用。
+    let ui_router = if config.ui_enabled {
         let dir = data_dir(&config);
         // whistle UI 可编辑状态：优先从磁盘加载，否则用启动规则播种默认规则。
         let mut wdata = whistle_web::whistle_store::WhistleData::load(
@@ -146,21 +148,28 @@ pub async fn start(config: Config) -> Result<()> {
             data_dir: dir,
             intercept_all: intercept_all.clone(),
         };
+        let app = whistle_web::router(state);
+
+        // 独立 UI 端口（保留，向后兼容）。
         let ui_addr = config.ui_addr();
         match ui_addr.parse::<std::net::SocketAddr>() {
             Ok(addr) => {
-                tracing::info!(%ui_addr, "管理界面 → http://{ui_addr}/");
+                tracing::info!(%ui_addr, "管理界面 → http://{ui_addr}/（代理端口直接打开也可）");
+                let app = app.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = whistle_web::serve(addr, state).await {
+                    if let Err(e) = whistle_web::serve_router(addr, app).await {
                         tracing::error!(%e, "管理界面退出");
                     }
                 });
             }
             Err(e) => tracing::warn!(%ui_addr, %e, "管理界面地址非法，已跳过"),
         }
-    }
+        Some(app)
+    } else {
+        None
+    };
 
-    proxy::serve(config, store, rules, ca, intercept_all).await
+    proxy::serve(config, store, rules, ca, intercept_all, ui_router).await
 }
 
 #[cfg(test)]

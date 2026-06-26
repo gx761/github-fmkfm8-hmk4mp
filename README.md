@@ -10,9 +10,12 @@
 # 构建
 cargo build --workspace
 
-# 启动代理（默认端口 8899，开启 HTTPS 解密）+ 管理界面（默认 8900）
+# 启动：代理 + 管理界面共用一个端口（默认 8899），和 whistle 一样
 cargo run --bin w2r -- start --port 8899 --rules examples/rules.txt
-#   打开 http://127.0.0.1:8900/ 查看实时抓包、编辑规则（保存即生效）
+#   · 把浏览器/系统 HTTP 代理指向 127.0.0.1:8899  → 抓包
+#   · 用浏览器直接打开 http://127.0.0.1:8899/      → 管理看板（实时抓包、编辑规则，保存即生效）
+#   同一个端口既是代理、又是看板（代理请求走转发，直接访问走看板）。
+#   （另有独立看板端口 8900 作向后兼容，可用 --ui-port 调整或 --no-ui 关闭。）
 
 # 可选：对客户端启用 HTTP/2（默认关闭，以兼容 WebSocket 等）
 cargo run --bin w2r -- start --http2
@@ -66,7 +69,7 @@ docker build -t whistle-rs . && docker run --rm -p 8899:8899 -p 8900:8900 whistl
   | 上游 / 插件 | `proxy` `socks` `plugin` `plugin-vars` |
   | 模板 / 控制 | `tpl` `xtpl` `ignore` `includeFilter` `excludeFilter` + `@include` 行 |
 
-- **测试**：69 个单元/集成测试（含 whistle `/cgi-bin` 规则编辑端到端测试、HTTPS 按需解密决策）+ 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
+- **测试**：70 个单元/集成测试（含 whistle `/cgi-bin` 规则编辑端到端测试、HTTPS 按需解密决策、代理端口直接访问返回看板）+ 规则引擎 criterion 基准（`crates/whistle-rules/benches/`）。
 
 > 已决定不实现（详见路线图，附理由）：`pac`（需 JS 引擎）、`reqWrite*`/`resWrite*`、`responseFor`、`trailers`、`cipher`/`sniCallback`、`weinre`、`pipe`、上游侧 HTTP/2；`reqRules`/`resRules`/`inherit`（动态规则注入）尚未实现。
 

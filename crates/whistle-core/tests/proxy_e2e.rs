@@ -53,6 +53,7 @@ async fn spawn_proxy(rules_text: &str) -> (std::net::SocketAddr, Arc<CaptureStor
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             512 * 1024,
             std::sync::Arc::new(std::collections::HashMap::new()),
+            None,
         )
         .await;
     });
@@ -94,6 +95,53 @@ async fn status_code_rule_mocks_without_upstream() {
     let (proxy, _store) = spawn_proxy("mock.local/teapot statusCode://418").await;
     let resp = proxy_get(proxy, "http://mock.local/teapot", "mock.local").await;
     assert!(resp.starts_with("HTTP/1.1 418"), "resp = {resp}");
+}
+
+/// 启动一个带「管理界面路由」的代理；返回代理地址。
+/// 直接（origin-form）访问代理端口应返回看板，代理（absolute-form）请求仍走转发。
+async fn spawn_proxy_with_ui(rules_text: &str) -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let store = Arc::new(CaptureStore::new(100));
+    let rules = Arc::new(RwLock::new(RuleSet::parse(rules_text).unwrap()));
+    let dir = std::env::temp_dir().join(format!(
+        "whistle-rs-ui-{}-{}",
+        std::process::id(),
+        addr.port()
+    ));
+    let ca = Arc::new(CertAuthority::load_or_generate(&dir).unwrap());
+    let ui = axum::Router::new().route("/", axum::routing::get(|| async { "DASHBOARD-STUB" }));
+    tokio::spawn(async move {
+        let _ = whistle_core::proxy::serve_listener(
+            listener,
+            store,
+            rules,
+            ca,
+            false,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            512 * 1024,
+            std::sync::Arc::new(std::collections::HashMap::new()),
+            Some(ui),
+        )
+        .await;
+    });
+    addr
+}
+
+#[tokio::test]
+async fn proxy_port_serves_dashboard_for_direct_requests() {
+    let origin = spawn_origin("ORIGIN-BODY").await;
+    let proxy =
+        spawn_proxy_with_ui(&format!("demo.local host://127.0.0.1:{}", origin.port())).await;
+
+    // 直接（origin-form）访问代理端口 → 返回看板。
+    let direct = proxy_get(proxy, "/", &format!("127.0.0.1:{}", proxy.port())).await;
+    assert!(direct.starts_with("HTTP/1.1 200"), "direct = {direct}");
+    assert!(direct.contains("DASHBOARD-STUB"), "direct = {direct}");
+
+    // 代理（absolute-form）请求 → 仍正常转发到上游。
+    let proxied = proxy_get(proxy, "http://demo.local/x", "demo.local").await;
+    assert!(proxied.contains("ORIGIN-BODY"), "proxied = {proxied}");
 }
 
 #[tokio::test]
