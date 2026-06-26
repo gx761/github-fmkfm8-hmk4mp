@@ -908,6 +908,10 @@ async fn send_and_capture(
         body.map_err(Into::into).boxed()
     };
 
+    // 抓包记录「实际发往上游」的请求头（已含规则改写，如 reqHeaders 注入的头），
+    // 这样 UI 里能看到规则确实生效，而不是改写前的原始头。
+    traffic.req_headers = collect_headers(&parts.headers);
+
     let upstream_req = Request::from_parts(parts, req_body);
     match sender.send_request(upstream_req).await {
         Ok(resp) => {

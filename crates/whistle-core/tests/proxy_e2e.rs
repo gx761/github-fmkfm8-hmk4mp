@@ -91,6 +91,33 @@ async fn host_rule_forwards_to_origin() {
 }
 
 #[tokio::test]
+async fn req_header_rule_is_reflected_in_capture() {
+    let origin = spawn_origin("OK").await;
+    let (proxy, store) = spawn_proxy(&format!(
+        "hdr.local host://127.0.0.1:{} reqHeaders://swimlane=selftest-1",
+        origin.port()
+    ))
+    .await;
+    let resp = proxy_get(proxy, "http://hdr.local/x", "hdr.local").await;
+    assert!(resp.starts_with("HTTP/1.1 200"), "resp = {resp}");
+
+    // 抓包记录的请求头应包含规则注入的头（证明规则确实命中并生效）。
+    let list = store.list(10);
+    assert_eq!(list.len(), 1);
+    let swimlane = list[0]
+        .req_headers
+        .iter()
+        .find(|h| h.name.eq_ignore_ascii_case("swimlane"))
+        .map(|h| h.value.as_str());
+    assert_eq!(
+        swimlane,
+        Some("selftest-1"),
+        "headers = {:?}",
+        list[0].req_headers
+    );
+}
+
+#[tokio::test]
 async fn status_code_rule_mocks_without_upstream() {
     let (proxy, _store) = spawn_proxy("mock.local/teapot statusCode://418").await;
     let resp = proxy_get(proxy, "http://mock.local/teapot", "mock.local").await;
